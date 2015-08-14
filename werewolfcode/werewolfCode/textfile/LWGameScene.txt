@@ -1,0 +1,2007 @@
+//
+//  LWGameScene.m
+//  嘘つき人狼
+//
+//  Created by Yuki Murakami on 2014/09/22.
+//  Copyright (c) 2014年 yuki. All rights reserved.
+//
+
+#import "LWGameScene.h"
+#import "LWMultipleLineLabelNode.h"
+#import "LWUtility.h"
+#import "LWBonjourManager.h"
+
+#define CONFIRM @"--確認したらココをタップ--"
+
+@interface LWGameScene () {
+    NSMutableDictionary *querry;
+    NSMutableArray *tablePlayerArray;
+    
+    bool isTwice;//夜のアクションで２週まわす必要があるかどうか
+    bool isSimul;//一斉投票であるかどうか
+    
+    bool isFirstNight;
+    int cellAction;//セルを押したときのアクションIDを登録しておく rollに準拠する
+    int tableRollId;
+    
+    int minute;
+    int time;
+    int day;
+    
+    int fortunePlayerIndex;//占い先変数　その他対象変数S
+    int shamanPlayerIndex;//冷媒先変数
+    int cursePlayerIndex;//呪われたものが噛まれた場合のプレイヤーID、それ以外は-1
+    NSMutableArray *formerCurses;//呪われたもの配列
+    NSMutableArray *apprenticeArray;//見習い預言者配列
+    NSMutableArray *killedToughs;//噛まれているタフガイ配列
+    NSMutableArray *knightPlayerIndexes;//護衛先変数
+    NSMutableDictionary *lastNightGuarded;//連続ガード実装用辞書　keyボデガ名前 前夜護衛先playerid
+    NSMutableArray *deadHunterList;//死んだ狩人リスト
+    NSMutableArray *deadCatList;//死んだ猫又リスト
+    
+    NSMutableArray *wolfArray;//襲撃先ポイント配列
+    NSMutableDictionary *wolfEatInfo;//どの人狼が誰をどの強さで噛んだかを記録
+    
+    NSMutableDictionary *deathInfos;//死亡者の情報　idとreason死亡要因とdateタイミングを記録
+    
+    NSString *victim;
+    NSMutableArray *victimArray;//夜間死亡者Array
+    NSMutableArray *victimImmoralArray;//後追い背徳者リスト
+    
+    BOOL canBake;//パン屋フラグ
+    NSInteger lackRoll;//初日の役職 役欠けなしなら -1
+}
+
+@end
+
+@implementation LWGameScene
+
+-(id)initWithSize:(CGSize)size {
+    self = [super initWithSize:size];
+    
+    return self;
+}
+
+-(void)initBackground {
+    
+    isTwice = false;
+    isSimul = true;
+    isFirstNight = true;
+    
+    deathInfos = [NSMutableDictionary dictionary];
+    
+    victim = @"いません";
+    day = 0;
+    minute = [infoDic[@"rules"][@"timer"]intValue];
+   
+    time = minute*60;
+    
+    tablePlayerArray = [NSMutableArray array];
+    
+    wolfArray = [NSMutableArray array];
+    
+    lastNightGuarded = [NSMutableDictionary dictionary];
+    
+    deadHunterList = [NSMutableArray array];
+    
+    wolfEatInfo = [NSMutableDictionary dictionary];
+    
+    canBake = NO;
+    
+    background = [[SKSpriteNode alloc]initWithImageNamed:@"night.jpg"];
+    background.size = self.size;
+    background.position = CGPointMake(self.size.width/2,self.size.height/2);
+    [self addChild:background];
+    
+    [self setRoll];//シャッフルして役職を決定
+    
+    querry = [ @{@"phase":@"firstNight_opening"}mutableCopy];
+    
+    
+    [self setBackground];
+    
+}
+
+-(void)setBackground {
+    
+    [table removeFromSuperview];
+    
+    NSArray *nodes = background.children;
+    for(int i=0;i<nodes.count;i++) {
+        SKNode *node = nodes[i];
+        [node removeFromParent];
+    }
+    
+    if([querry[@"phase"] isEqualToString:@"firstNight_opening"]) {
+        
+        [self refresh];
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,0) color:[UIColor blackColor] texture:nil];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        NSString *string = [NSString stringWithFormat:@"はじめの夜になりました。「%@」さんから端末をまわしてそれぞれ行動を決定してください。それ以外のプレイヤーは目を閉じて顔を伏せてください。",infoDic[@"players"][0][@"name"]];
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor whiteColor]];
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+     
+        [background addChild:button];
+        
+        [[LWBonjourManager sharedManager] sendData:@"log:はじめの夜になりました。"];
+    }
+    if([querry[@"phase"] isEqualToString:@"nextPlayer"]) {
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,0) color:[UIColor blackColor] texture:nil];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        NSString *string = [NSString stringWithFormat:@"次のプレイヤーに端末を渡してください。"];
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor whiteColor]];
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+    }
+    if([querry[@"phase"] isEqualToString:@"firstNight_playerCheck"]) {
+        
+        int playerId = [querry[@"player"]intValue];
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,300) position:CGPointMake(0,100) color:[UIColor blackColor] texture:nil];
+        
+        SKTexture *texture = [SKTexture textureWithImage:infoDic[@"players"][playerId][@"image"]];
+        SKSpriteNode *explain2 = [LWUtility makeFrameNode:CGSizeMake(160,120) position:CGPointMake(0,50) color:nil texture:texture];
+        explain2.zRotation = -1.57;
+       
+        [explain addChild:explain2];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        NSString *string = [NSString stringWithFormat:@"あなたは「%@」さんですね？",infoDic[@"players"][playerId][@"name"]];
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor whiteColor]];
+        explainLabel.position = CGPointMake(0,-70);
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"確認" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:「%@」さん（%@）",infoDic[@"players"][playerId][@"name"],[LWUtility getCardInfofromId:[infoDic[@"players"][playerId][@"rollId"]intValue]][@"name"]]];
+    }
+    if([querry[@"phase"] isEqualToString:@"firstNight_rollRotate"]) {
+        int playerId = [querry[@"player"]intValue];
+        
+        NSMutableArray *textures = [NSMutableArray array];
+        //TODO::絵が出来上がったら増やす
+        for(int i=0;i<20/*[LWUtility getMaxRollCount]*/;i++) {
+            SKTexture *texture = [LWUtility getCardTexture:i];
+            [textures addObject:texture];
+        }
+        
+        SKAction *anime = [SKAction animateWithTextures:textures timePerFrame:0.02f];
+        SKAction *animes = [SKAction repeatAction:anime count:5];
+        
+        SKSpriteNode *explain = [[SKSpriteNode alloc]initWithImageNamed:@"frame.png"];
+        explain.size = CGSizeMake(218,307);
+        explain.position = CGPointMake(0,0);
+        SKSpriteNode *content = [[SKSpriteNode alloc]init];
+        content.size = CGSizeMake(explain.size.width*0.9,explain.size.height*0.92);
+        content.position = CGPointMake(0,0);
+        
+        [content runAction:animes completion:^{
+            content.texture = [LWUtility getCardTexture:[infoDic[@"players"][playerId][@"rollId"]intValue]];
+            
+            
+            SKSpriteNode *button = [LWUtility makeButton:@"詳細確認" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+75)];
+            [background addChild:button];
+        }];
+        
+        [explain addChild:content];
+        [background addChild:explain];
+    }
+    if([querry[@"phase"] isEqualToString:@"firstNight_rollCheck"]) {
+        int playerId = [querry[@"player"]intValue];
+        int rollId = [infoDic[@"players"][playerId][@"rollId"]intValue];
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,250) position:CGPointMake(0,130) color:[UIColor blackColor] texture:nil];
+        
+        
+        SKTexture *texture = [LWUtility getCardTexture:rollId];
+        SKSpriteNode *explain2 = [LWUtility makeFrameNode:CGSizeMake(218*0.3,307*0.3) position:CGPointMake(0,50) color:nil texture:texture];
+        [explain addChild:explain2];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        
+        NSMutableDictionary *rollDic = [LWUtility getCardInfofromId:rollId];
+        NSString *string = [NSString stringWithFormat:@"あなたの役職は「%@」です。%@",rollDic[@"name"],rollDic[@"explain"]];
+        
+        if(rollId == RollFortuneTeller) {
+            NSUInteger index = [apprenticeArray indexOfObject:@(playerId)];
+            if (index != NSNotFound) {
+                //（元見習い預言者）
+                string = [NSString stringWithFormat:@"%@すでに預言者がいないため、見習い預言者だったあなたが今夜から新たな預言者です。",string];
+            }
+        }
+        
+        if(rollId == RollBodyguard) {
+            if([infoDic[@"rules"][@"canContinuousGuard"]boolValue]) {
+                string = [NSString stringWithFormat:@"%@連続ガード「あり」です。",string];
+            } else {
+                string = [NSString stringWithFormat:@"%@連続ガード「なし」です。",string];
+            }
+        }
+        [explainLabel setText:string fontSize:12 fontColor:[UIColor whiteColor]];
+        explainLabel.position = CGPointMake(0,-50);
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        if(![[LWUtility getCardInfofromId:rollId][@"hasTableFirst"]boolValue]) {
+            
+            SKSpriteNode *notActionNode = [LWUtility makeFrameNode:CGSizeMake(200,80) position:CGPointMake(0, -100) color:[UIColor blackColor] texture:nil];
+            LWMultipleLineLabelNode *notActionLabelNode = [[LWMultipleLineLabelNode alloc]init];
+            notActionLabelNode.size = CGSizeMake(notActionNode.size.width*0.8,notActionNode.size.height*0.8);
+            notActionLabelNode.position = CGPointMake(0, 0);
+            [notActionLabelNode setText:@"特に行うアクションはありません。数秒待ってから「次へ」を押してください。" fontSize:14 fontColor:[UIColor whiteColor]];
+            [notActionNode addChild:notActionLabelNode];
+            [background addChild:notActionNode];
+            
+            SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8,self.size.height*0.1) name:@"next" position:CGPointMake(0,-self.size.height/2+75)];
+            [background addChild:button];
+            
+        } else {
+            FortuneTellerMode mode = [infoDic[@"rules"][@"fortuneMode"]integerValue];
+            if(rollId == RollFortuneTeller && mode != FortuneTellerModeFree) {
+                if(mode == FortuneTellerModeNone) {
+                    
+                    SKSpriteNode *notActionNode = [LWUtility makeFrameNode:CGSizeMake(200,80) position:CGPointMake(0, -100) color:[UIColor blackColor] texture:nil];
+                    LWMultipleLineLabelNode *notActionLabelNode = [[LWMultipleLineLabelNode alloc]init];
+                    notActionLabelNode.size = CGSizeMake(notActionNode.size.width*0.8,notActionNode.size.height*0.8);
+                    notActionLabelNode.position = CGPointMake(0, 0);
+                    [notActionLabelNode setText:@"初日の占いはありません。数秒待ってから「次へ」を押してください。" fontSize:14 fontColor:[UIColor whiteColor]];
+                    [notActionNode addChild:notActionLabelNode];
+                    [background addChild:notActionNode];
+                    
+                    SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8,self.size.height*0.1) name:@"next" position:CGPointMake(0,-self.size.height/2+75)];
+                    [background addChild:button];
+                    return;
+                }
+                if(mode == FortuneTellerModeRevelation) {
+                    //お告げとして、人狼、妖狐、狼憑き以外の結果をランダムに伝える
+                    //ただし自分以外
+                    NSMutableArray *array = [NSMutableArray array];
+                    for(NSInteger i=0;i<[infoDic[@"players"] count];i++) {
+                        NSInteger rollIdInteger = [infoDic[@"players"][i][@"rollId"]integerValue];
+                        if(rollIdInteger != RollWerewolf && rollIdInteger != RollFox && rollIdInteger != RollPossessed) {
+                            if([infoDic[@"players"][i][@"playerId"]integerValue] != playerId) {//自分以外
+                                [array addObject:infoDic[@"players"][i][@"playerId"]];
+                            }
+                        }
+                    }
+                  //  NSLog(@"fortuneCandidate:%@",array);
+                   // NSLog(@"%@",infoDic[@"players"]);
+                    fortunePlayerIndex = [array[arc4random_uniform((int)(array.count))]intValue];
+                    querry[@"phase"] = @"fortuneTeller";
+                    [self setBackground];
+                    return;
+                }
+            }
+            
+            [self setTableDataFirst:rollId playerId:playerId];
+            
+            CGFloat margin = 5;
+            CGFloat upmargin = 2;
+            CGFloat downmargin = 8;
+            table = [[UITableView alloc]initWithFrame:CGRectMake(margin,self.size.height/2+upmargin,self.size.width-margin*2,(self.size.height-self.size.height/2+upmargin)-downmargin)];
+            table.delegate = self;
+            table.dataSource = self;
+            table.rowHeight = 80;
+            
+            [self.view addSubview:table];
+            [table reloadData];
+        }
+        
+    }
+    
+    if([querry[@"phase"] isEqualToString:@"fortuneTeller"]) {
+    
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,300) position:CGPointMake(0,100) color:[UIColor blackColor] texture:nil];
+        
+        
+        SKTexture *texture = [SKTexture textureWithImage:infoDic[@"players"][fortunePlayerIndex][@"image"]];
+        SKSpriteNode *explain2 = [LWUtility makeFrameNode:CGSizeMake(160,120) position:CGPointMake(0,50) color:nil texture:texture];
+        explain2.zRotation = -1.57;
+        [explain addChild:explain2];
+
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        
+        NSString *string;
+        int roll = [infoDic[@"players"][fortunePlayerIndex][@"rollId"]intValue];
+        UIColor *color = [UIColor whiteColor];
+        if(roll == RollWerewolf || roll == RollPossessed) {//人狼と狼憑き
+            string = [NSString stringWithFormat:@"「%@」さんは＜人狼＞です。",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+            color = [UIColor redColor];
+        } else {
+            string = [NSString stringWithFormat:@"「%@」さんは＜人間＞です。",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+            if(roll == RollFox) {//妖狐
+                [victimArray addObject:@(fortunePlayerIndex)];
+                [deathInfos setObject:@{@"reason":@(DeathReasonCurse),@"day":@(day+1)} forKey:infoDic[@"players"][fortunePlayerIndex][@"name"]];
+            }
+        }
+        
+        [explainLabel setText:string fontSize:30 fontColor:color];
+        explainLabel.position = CGPointMake(0,-80);
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:　　占い結果：%@",string]];
+    }
+    if([querry[@"phase"] isEqualToString:@"shaman"]) {
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,300) position:CGPointMake(0,100) color:[UIColor blackColor] texture:nil];
+        
+        SKTexture *texture = [SKTexture textureWithImage:infoDic[@"players"][shamanPlayerIndex][@"image"]];
+        SKSpriteNode *explain2 = [LWUtility makeFrameNode:CGSizeMake(160,120) position:CGPointMake(0,50) color:nil texture:texture];
+        explain2.zRotation = -1.57;
+        [explain addChild:explain2];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        
+        NSString *string;
+        int roll = [infoDic[@"players"][shamanPlayerIndex][@"rollId"]intValue];
+        UIColor *color = [UIColor whiteColor];
+        if(roll == RollWerewolf) {
+            string = [NSString stringWithFormat:@"あなたは霊媒師です。昼に処刑された「%@」さんは＜人狼＞でした。",infoDic[@"players"][shamanPlayerIndex][@"name"]];
+            color = [UIColor redColor];
+        } else {
+            string = [NSString stringWithFormat:@"あなたは霊媒師です。昼に処刑された「%@」さんは＜人間＞でした。",infoDic[@"players"][shamanPlayerIndex][@"name"]];
+        }
+        
+        SKSpriteNode *notActionNode = [LWUtility makeFrameNode:CGSizeMake(200,80) position:CGPointMake(0, -100) color:[UIColor blackColor] texture:nil];
+        LWMultipleLineLabelNode *notActionLabelNode = [[LWMultipleLineLabelNode alloc]init];
+        notActionLabelNode.size = CGSizeMake(notActionNode.size.width*0.8,notActionNode.size.height*0.8);
+        notActionLabelNode.position = CGPointMake(0, 0);
+        [notActionLabelNode setText:@"特に行うアクションはありません。数秒待ってから「次へ」を押してください。" fontSize:14 fontColor:[UIColor whiteColor]];
+        [notActionNode addChild:notActionLabelNode];
+        [background addChild:notActionNode];
+        
+        [explainLabel setText:string fontSize:20 fontColor:color];
+        explainLabel.position = CGPointMake(0,-80);
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        NSString *sendString = @"";
+        if(roll == RollWerewolf) {
+            sendString = @"人狼";
+        } else {
+            sendString = @"人間";
+        }
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:　　霊媒結果：「%@」さんは＜%@＞でした。",infoDic[@"players"][shamanPlayerIndex][@"name"],sendString]];
+    }
+    
+    
+    if([querry[@"phase"] isEqualToString:@"afternoon_opening"]) {
+        isFirstNight = false;
+        
+        background.texture = [SKTexture textureWithImageNamed:@"afternoon.jpg"];
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,0) color:[UIColor whiteColor] texture:nil];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        
+        NSString *string = [NSString stringWithFormat:@"%d日目の朝になりました。昨日の犠牲者は%@でした。",day,victim];
+        
+        if(canBake) {
+            if([[self getLiveRoll:RollBaker] count] >= 1) {
+                string = [NSString stringWithFormat:@"%@今日もパン屋が美味しい%@を焼いてくれました。",string,[self getBreadString]];
+            } else {
+                canBake = NO;
+                string = [NSString stringWithFormat:@"%@今日からは美味しいパンが食べれなくなりました。",string];
+            }
+        }
+        
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor blackColor]];
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:%@",string]];
+        
+    }
+    if([querry[@"phase"] isEqualToString:@"hunter_afternoon"] || [querry[@"phase"] isEqualToString:@"hunter_night"]) {
+        background.texture = [SKTexture textureWithImageNamed:@"afternoon.jpg"];
+        if([querry[@"phase"] isEqualToString:@"hunter_night"]) {
+            background.texture = [SKTexture textureWithImageNamed:@"evening.jpg"];
+        }
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,130) color:[UIColor whiteColor] texture:nil];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        NSString *string = [NSString stringWithFormat:@"「%@」さんは狩人でした。道連れにする人を選択してください。",infoDic[@"players"][[deadHunterList[0]integerValue]][@"name"]];
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor blackColor]];
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        
+        [self setTableData:RollHunter playerId:[deadHunterList[0]intValue]];
+        
+        CGFloat margin = 5;
+        CGFloat upmargin = 2;
+        CGFloat downmargin = 8;
+        table = [[UITableView alloc]initWithFrame:CGRectMake(margin,self.size.height/2+upmargin,self.size.width-margin*2,(self.size.height-self.size.height/2+upmargin)-downmargin)];
+        table.delegate = self;
+        table.dataSource = self;
+        table.rowHeight = 80;
+        
+        [self.view addSubview:table];
+        [table reloadData];
+        
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:%@",string]];
+    }
+    if([querry[@"phase"] isEqualToString:@"hunter_afternoon_dead"]
+       || [querry[@"phase"] isEqualToString:@"hunter_night_dead"]
+       || [querry[@"phase"] isEqualToString:@"immoral_afternoon_dead"]
+       || [querry[@"phase"] isEqualToString:@"immoral_night_dead"]
+       || [querry[@"phase"] isEqualToString:@"cat_night_dead"]
+       || [querry[@"phase"] isEqualToString:@"excution"]) {
+        
+        background.texture = [SKTexture textureWithImageNamed:@"afternoon.jpg"];
+        if([querry[@"phase"] isEqualToString:@"hunter_night_dead"]
+           || [querry[@"phase"] isEqualToString:@"immoral_night_dead"]
+           || [querry[@"phase"] isEqualToString:@"cat_night_dead"]
+           || [querry[@"phase"] isEqualToString:@"excution"]) {
+            background.texture = [SKTexture textureWithImageNamed:@"evening.jpg"];
+        }
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,300) position:CGPointMake(0,100) color:[UIColor whiteColor] texture:nil];
+        
+        SKTexture *texture = [SKTexture textureWithImage:infoDic[@"players"][fortunePlayerIndex][@"image"]];
+        SKSpriteNode *explain2 = [LWUtility makeFrameNode:CGSizeMake(160,120) position:CGPointMake(0,50) color:nil texture:texture];
+        explain2.zRotation = -1.57;
+        [explain addChild:explain2];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        
+        
+        DeathReason reason = DeathReasonExcution;
+        
+        NSString *string = [NSString stringWithFormat:@"「%@」さんは村の総意で処刑されました。",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+        if([querry[@"phase"] isEqualToString:@"excution"])  {
+            shamanPlayerIndex = fortunePlayerIndex;//霊媒先に処刑者を設定
+            [self checkExcutedPlayer:fortunePlayerIndex phaseRoll:-1];//処刑
+        }
+        if([querry[@"phase"] isEqualToString:@"hunter_afternoon_dead"]
+           || [querry[@"phase"] isEqualToString:@"hunter_night_dead"]) {
+            string = [NSString stringWithFormat:@"「%@」さんは狩人の道連れで死亡しました。",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+            [self checkExcutedPlayer:fortunePlayerIndex phaseRoll:RollHunter];//狩人で死亡
+            reason = DeathReasonHunter;
+        }
+        if([querry[@"phase"] isEqualToString:@"immoral_afternoon_dead"]
+           || [querry[@"phase"] isEqualToString:@"immoral_night_dead"]) {
+            string = [NSString stringWithFormat:@"「%@」さんは後追い自殺で死亡しました。",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+            [self checkExcutedPlayer:fortunePlayerIndex phaseRoll:RollImmoralist];//背徳者として死亡
+            reason = DeathReasonSuicide;
+        }
+        if([querry[@"phase"] isEqualToString:@"cat_night_dead"]) {
+            string = [NSString stringWithFormat:@"「%@」さんは猫又の呪いで死亡しました。",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+            [self checkExcutedPlayer:fortunePlayerIndex phaseRoll:RollCat];//猫で死亡
+            reason = DeathReasonCat;
+        }
+        
+        
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor blackColor]];
+        explainLabel.position = CGPointMake(0,-80);
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        
+        
+        
+        
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        infoDic[@"players"][fortunePlayerIndex][@"isLive"] = @NO;
+        [deathInfos setObject:@{@"reason":@(reason),@"day":@(day)} forKey:infoDic[@"players"][fortunePlayerIndex][@"name"]];
+        //TODO::昼に死亡した人の変数を変更
+        
+        
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:%@",string]];
+    }
+    
+    if([querry[@"phase"] isEqualToString:@"afternoon_opening2"]) {
+        
+        [self refresh];
+        
+        if([self isFinish] != 0) {
+            querry[@"phase"] = @"gameover";
+            [self setBackground];
+        }
+        
+        
+        background.texture = [SKTexture textureWithImageNamed:@"afternoon.jpg"];
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,0) color:[UIColor whiteColor] texture:nil];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        NSString *string = [NSString stringWithFormat:@"人狼を見つけるための会議を始めてください。議論の時間は%d分です。",minute];
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor blackColor]];
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:%@",string]];
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"death:%@",[self getDeathInfoString]]];
+    }
+    if([querry[@"phase"] isEqualToString:@"afternoon_meeting"]) {
+        background.texture = [SKTexture textureWithImageNamed:@"afternoon.jpg"];
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,0) color:[UIColor whiteColor] texture:nil];
+        
+        SKLabelNode *explainLabel = [[SKLabelNode alloc]init];
+        explainLabel.fontSize = 100;
+        explainLabel.fontName = @"NSゴシック";
+        explainLabel.position = CGPointMake(0, 0);
+        explainLabel.fontColor = [UIColor blackColor];
+        NSString *timeString = [NSString stringWithFormat:@"%d:00",time/60];
+        explainLabel.text = timeString;
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKAction *count = [SKAction runBlock:^{
+            time --;
+            
+            for(NSInteger i=1;i<=3;i++) {
+                if(time == 60*i) {
+                    [self runAction:[self getLowBellSound:4-i]];
+                }
+            }
+            
+            NSString *timeString = [NSString stringWithFormat:@"%d:%02d",time/60,time%60];
+            explainLabel.text = timeString;
+            if(time <= 0) {
+                [explainLabel removeAllActions];
+                [self runAction:[self getHighBellSound:5]];
+                [self goNextPhase];
+            }
+        }];
+    
+        SKAction *wait = [SKAction waitForDuration:1.0];
+        SKAction *repeat = [SKAction repeatActionForever:[SKAction sequence:@[wait,count]]];
+        [explainLabel runAction:repeat];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"話し合い終了" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+    }
+    if([querry[@"phase"] isEqualToString:@"afternoon_voting"]) {
+        background.texture = [SKTexture textureWithImageNamed:@"evening.jpg"];
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,130) color:[UIColor whiteColor] texture:nil];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        NSString *string = [NSString stringWithFormat:@"日が暮れて今日も１人処刑者を決めなければなりません。投票を行い、処刑者を決定してください。同票の場合は決戦投票を行うが、３回続けても変更がない場合は引き分けとなります。"];
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor blackColor]];
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+            
+        [self setTableData:-1 playerId:-1];
+        
+        CGFloat margin = 5;
+        CGFloat upmargin = 2;
+        CGFloat downmargin = 8;
+        table = [[UITableView alloc]initWithFrame:CGRectMake(margin,self.size.height/2+upmargin,self.size.width-margin*2,(self.size.height-self.size.height/2+upmargin)-downmargin)];
+        table.delegate = self;
+        table.dataSource = self;
+        table.rowHeight = 80;
+        
+        [self.view addSubview:table];
+        [table reloadData];
+        
+        [[LWBonjourManager sharedManager] sendData:@"log:投票中、、、"];
+    }
+    
+    if([querry[@"phase"] isEqualToString:@"night_opening"]) {
+        
+        
+        //呪われたものの人狼化は、終了判定前に行われる。LWがつられても人狼化が起きればゲームは続く
+        if(cursePlayerIndex != -1) {//呪われた物が噛まれて、まだ生きていたらこのタイミングで人狼化
+            if([infoDic[@"players"][cursePlayerIndex][@"isLive"]boolValue]) {
+                infoDic[@"players"][cursePlayerIndex][@"rollId"] = @(RollWerewolf);
+            } else {
+                //生きていなかったら、そのまま人間としてゲームから除外　残りの人狼にもそのことは知らせない
+                cursePlayerIndex = -1;
+            }
+        }
+        
+        [self refresh];
+        
+        if([self isFinish] != 0) {
+            querry[@"phase"] = @"gameover";
+            [self setBackground];
+            return;
+        }
+        
+        
+        background.texture = [SKTexture textureWithImageNamed:@"night.jpg"];
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,0) color:[UIColor blackColor] texture:nil];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        
+        NSMutableDictionary *player = infoDic[@"players"][0];
+        for(int i=0;i<[infoDic[@"players"] count];i++) {
+            if([infoDic[@"players"][i][@"isLive"]boolValue]) {
+                player = infoDic[@"players"][i];
+                querry[@"player"] = @(i);
+                break;
+            }
+        }
+        NSString *string = [NSString stringWithFormat:@"%d日目の夜になりました。「%@」さんから端末をまわしてそれぞれ行動を決定してください。それ以外のプレイヤーは目を閉じて顔を伏せてください。",day,player[@"name"]];
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor whiteColor]];
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:%d日目の夜になりました。",day]];
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"death:%@",[self getDeathInfoString]]];
+    }
+    if([querry[@"phase"] isEqualToString:@"night_playerCheck"]) {
+        
+        int playerId = [querry[@"player"]intValue];
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,300) position:CGPointMake(0,100) color:[UIColor blackColor] texture:nil];
+        
+        SKTexture *texture = [SKTexture textureWithImage:infoDic[@"players"][playerId][@"image"]];
+        SKSpriteNode *explain2 = [LWUtility makeFrameNode:CGSizeMake(160,120) position:CGPointMake(0,50) color:nil texture:texture];
+        explain2.zRotation = -1.57;
+        [explain addChild:explain2];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        NSString *string = [NSString stringWithFormat:@"あなたは「%@」さんですね？",infoDic[@"players"][playerId][@"name"]];
+        [explainLabel setText:string fontSize:20 fontColor:[UIColor whiteColor]];
+        explainLabel.position = CGPointMake(0,-70);
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"確認" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:「%@」さん（%@）",infoDic[@"players"][playerId][@"name"],[LWUtility getCardInfofromId:[infoDic[@"players"][playerId][@"rollId"]intValue]][@"name"]]];
+    }
+    if([querry[@"phase"] isEqualToString:@"night_rollCheck"]) {
+        int playerId = [querry[@"player"]intValue];
+        int rollId = [infoDic[@"players"][playerId][@"rollId"]intValue];
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,250) position:CGPointMake(0,130) color:[UIColor blackColor] texture:nil];
+        
+        
+        SKTexture *texture = [LWUtility getCardTexture:rollId];
+        SKSpriteNode *explain2 = [LWUtility makeFrameNode:CGSizeMake(218*0.3,307*0.3) position:CGPointMake(0,50) color:nil texture:texture];
+        [explain addChild:explain2];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        
+        UIColor *color = [UIColor whiteColor];
+        CGFloat fontSize = 12;
+        NSMutableDictionary *rollDic = [LWUtility getCardInfofromId:rollId];
+        
+        
+        
+        NSString *string = [NSString stringWithFormat:@"あなたの役職は「%@」です。%@",rollDic[@"name"],rollDic[@"explain"]];
+        
+        if(rollId == RollFortuneTeller) {
+            NSUInteger index = [apprenticeArray indexOfObject:@(playerId)];
+            if (index != NSNotFound) {
+                //（元見習い預言者）
+                string = [NSString stringWithFormat:@"%@すでに預言者がいないため、あなたが新たな預言者です。",string];
+            }
+        }
+        
+        if(rollId == RollBodyguard) {
+            if([infoDic[@"rules"][@"canContinuousGuard"]boolValue]) {
+                string = [NSString stringWithFormat:@"%@連続ガード「あり」です。",string];
+            } else {
+                string = [NSString stringWithFormat:@"%@連続ガード「なし」です。",string];
+            }
+        }
+        if(rollId == RollWerewolf && cursePlayerIndex != -1) {//呪われたものが人狼化したら人狼に伝える
+            string = [NSString stringWithFormat:@"あなたの役職は「%@」です。昨日の夜襲撃にあった「%@」さんは呪われたものだったため、今夜から人狼となります。",rollDic[@"name"],infoDic[@"players"][cursePlayerIndex][@"name"]];
+            //生き残っている仲間の人狼を一応表示する。
+            NSMutableArray *wolfNames = [NSMutableArray array];
+            for(NSMutableDictionary *info in infoDic[@"players"]) {
+                BOOL isLive = [info[@"isLive"]boolValue];
+                NSInteger rid = [info[@"rollId"]integerValue];
+                if(rid == RollWerewolf && isLive) {
+                    [wolfNames addObject:info[@"name"]];
+                }
+            }
+            string = [NSString stringWithFormat:@"%@今生き残っている人狼は",string];
+            for(NSString *str in wolfNames) {
+                string = [NSString stringWithFormat:@"%@「%@」",string,str];
+            }
+            string = [NSString stringWithFormat:@"%@さんです。",string];
+                
+            color = [UIColor yellowColor];
+            fontSize = 17;
+            
+            [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"　　log:%@",string]];
+        }
+        
+        
+        
+        [explainLabel setText:string fontSize:fontSize fontColor:color];
+        explainLabel.position = CGPointMake(0,-50);
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        if(![[LWUtility getCardInfofromId:rollId][@"hasTable"]boolValue]) {
+            
+            if(rollId == RollShaman) {//霊媒師
+                querry[@"phase"] = @"shaman";
+                [self setBackground];
+                return;
+            }
+            
+            SKSpriteNode *notActionNode = [LWUtility makeFrameNode:CGSizeMake(200,80) position:CGPointMake(0, -100) color:[UIColor blackColor] texture:nil];
+            LWMultipleLineLabelNode *notActionLabelNode = [[LWMultipleLineLabelNode alloc]init];
+            notActionLabelNode.size = CGSizeMake(notActionNode.size.width*0.8,notActionNode.size.height*0.8);
+            notActionLabelNode.position = CGPointMake(0, 0);
+            [notActionLabelNode setText:@"特に行うアクションはありません。数秒待ってから「次へ」を押してください。" fontSize:14 fontColor:[UIColor whiteColor]];
+            [notActionNode addChild:notActionLabelNode];
+            [background addChild:notActionNode];
+            
+            
+            SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8,self.size.height*0.1) name:@"next" position:CGPointMake(0,-self.size.height/2+75)];
+            [background addChild:button];
+            
+        } else {
+            
+            [self setTableData:rollId playerId:playerId];
+            
+            CGFloat margin = 5;
+            CGFloat upmargin = 2;
+            CGFloat downmargin = 8;
+            table = [[UITableView alloc]initWithFrame:CGRectMake(margin,self.size.height/2+upmargin,self.size.width-margin*2,(self.size.height-self.size.height/2+upmargin)-downmargin)];
+            table.delegate = self;
+            table.dataSource = self;
+            table.rowHeight = 80;
+            
+            [self.view addSubview:table];
+            [table reloadData];
+        }
+        
+    }
+    
+    if([querry[@"phase"] isEqualToString:@"gameover"]) {
+        background.texture = [SKTexture textureWithImageNamed:@"evening.jpg"];
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,0) color:[UIColor blackColor] texture:nil];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        NSString *string = [NSString stringWithFormat:@"この時点でゲームが終了しました。勝利チームは、、、、"];
+        [explainLabel setText:string fontSize:30 fontColor:[UIColor whiteColor]];
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        [[LWBonjourManager sharedManager] sendData:@"log:この時点でゲームが終了"];
+    }
+    
+    if([querry[@"phase"] isEqualToString:@"winner"]) {
+        int winId = [self isFinish];
+        UIColor *backColor;
+        UIColor *wordColor;
+        NSString *fileName;
+        NSString *string;
+        if(winId == 1) {
+            backColor = [UIColor whiteColor];
+            wordColor = [UIColor blackColor];
+            fileName = @"afternoon.jpg";
+            string = @"村人チームの勝利です！！";
+            //奴隷は貴族が全滅していたら勝利
+            if([infoDic[@"rolls"][RollSlave] integerValue] >= 1) {
+                if ([[self getLiveRoll:RollNoble] count] <= 0) {
+                    string = [NSString stringWithFormat:@"%@奴隷も勝利です！！",string];
+                } else {
+                    string = [NSString stringWithFormat:@"%@奴隷は敗北です！！",string];
+                }
+            }
+        }
+        if(winId == -1) {
+            backColor = [UIColor blackColor];
+            wordColor = [UIColor whiteColor];
+            fileName = @"night.jpg";
+            string = @"人狼チームの勝利です！！";
+        }
+        if(winId == 2) {
+            backColor = [UIColor whiteColor];
+            wordColor = [UIColor blackColor];
+            fileName = @"evening.jpg";
+            string = @"妖狐の勝利です！！";
+        }
+        background.texture = [SKTexture textureWithImageNamed:fileName];
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,200) position:CGPointMake(0,0) color:backColor texture:nil];
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        [explainLabel setText:string fontSize:30 fontColor:wordColor];
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        SKSpriteNode *button = [LWUtility makeButton:@"次へ" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"next" position:CGPointMake(0, -self.size.height/2+95)];
+        
+        [background addChild:button];
+        
+        [[LWBonjourManager sharedManager] sendData:[NSString stringWithFormat:@"log:%@",string]];
+    }
+    
+    if([querry[@"phase"] isEqualToString:@"ending"]) {
+        
+        SKSpriteNode *explain = [LWUtility makeFrameNode:CGSizeMake(280,120) position:CGPointMake(0,170) color:[UIColor blackColor] texture:nil];
+        
+        
+        LWMultipleLineLabelNode *explainLabel = [[LWMultipleLineLabelNode alloc]init];
+        explainLabel.size = CGSizeMake(explain.size.width*0.8,explain.size.height*0.8);
+        
+        NSString *string = [NSString stringWithFormat:@"お疲れ様でした。全員の役職を確認してください。"];
+        [explainLabel setText:string fontSize:30 fontColor:[UIColor whiteColor]];
+        explainLabel.position = CGPointMake(0,0);
+        [explain addChild:explainLabel];
+        [background addChild:explain];
+        
+        
+        //役欠けありなら、プレイヤーリストの最後に初日を加える。
+        if([infoDic[@"rules"][@"isLacking"]boolValue]) {
+            NSInteger nPlayer = [infoDic[@"players"] count];
+            [infoDic[@"players"] addObject:[@{@"playerId":@(nPlayer),
+                                              @"rollId":@(lackRoll),
+                                              @"name":@"初日犠牲者",
+                                              @"image":[UIImage imageNamed:@"no_image.jpg"],
+                                              }mutableCopy]];
+        }
+        
+        [self setTableData:-2 playerId:-2];
+        
+        CGFloat margin = 5;
+        CGFloat upmargin = 2;
+        CGFloat downmargin = 8;
+        table = [[UITableView alloc]initWithFrame:CGRectMake(margin,self.size.height/2+upmargin-90,self.size.width-margin*2,(self.size.height-self.size.height/2+upmargin)-downmargin+90)];
+        table.delegate = self;
+        table.dataSource = self;
+        table.rowHeight = 80;
+        
+        [self.view addSubview:table];
+        [table reloadData];
+        
+    }
+}
+
+-(void)checkExcutedPlayer :(NSInteger)index phaseRoll:(NSInteger)phaseRoll{
+    //phaseRoll:どんな役職の効果で死亡したのか
+    
+    //TODO::処刑チェック
+    
+    NSInteger rollId = [infoDic[@"players"][fortunePlayerIndex][@"rollId"]integerValue];
+    
+    if(rollId == RollHunter) {
+        [deadHunterList addObject:@(fortunePlayerIndex)];
+    }
+    if(rollId == RollCat && phaseRoll == -1) {//猫は処刑と襲撃しか効果がない
+        [deadCatList addObject:@(fortunePlayerIndex)];
+    }
+}
+
+-(void) setTableDataFirst :(int)rollId playerId:(int)playerId{
+    [tablePlayerArray removeAllObjects];
+    cellAction = 0;
+    NSMutableArray *playerArray = infoDic[@"players"];
+    for(int i=0;i<playerArray.count;i++) {
+        NSMutableDictionary *player = playerArray[i];
+            
+        int playersRollId = [player[@"rollId"]intValue];
+        
+        if(rollId == RollWerewolf) {
+            if(playersRollId == RollWerewolf && playerId != i) {//人狼仲間確認
+                [tablePlayerArray addObject:player];
+            }
+        }
+        if(rollId == RollFox || rollId == RollImmoralist) {//妖狐と背徳者は妖狐を確認
+            if(playersRollId == RollFox && playerId != i) {
+                [tablePlayerArray addObject:player];
+            }
+        }
+        if(rollId == RollFanatic) {//狂信者
+            if(playersRollId == RollWerewolf) {//人狼確認
+                [tablePlayerArray addObject:player];
+            }
+        }
+        if(rollId == RollFortuneTeller || rollId == RollWolfboy) {
+            if(playerId != i) {//予言,狼少年テーブルには自信は含めない
+                [tablePlayerArray addObject:player];
+            }
+            cellAction = rollId;
+        }
+        if(rollId == RollJointOwner) {
+            if(playersRollId == RollJointOwner && playerId != i) {//共有者仲間を確認
+                [tablePlayerArray addObject:player];
+            }
+        }
+        if(rollId == RollMotherFortuneTeller) {
+            if(playersRollId == RollFortuneTeller) {//予言者のママは予言者を確認
+                [tablePlayerArray addObject:player];
+            }
+        }
+        if(rollId == RollSlave) {
+            if(playersRollId == RollNoble) {//奴隷は貴族を確認
+                [tablePlayerArray addObject:player];
+            }
+        }
+    }
+    
+    tableRollId = rollId;
+    
+    if(cellAction == 0) {
+        //末尾に確認ボタンをつける
+        NSMutableDictionary *dic = [@{@"rollId":@-1} mutableCopy];
+        [tablePlayerArray addObject:dic];
+    }
+}
+
+-(void) setTableData :(int)rollId playerId:(int)playerId{
+    [tablePlayerArray removeAllObjects];
+    
+    if(rollId == -1) {//処刑用のテーブル
+        NSMutableArray *playerArray = infoDic[@"players"];
+        for(int i=0;i<playerArray.count;i++) {
+            if([playerArray[i][@"isLive"]boolValue]) {
+                [tablePlayerArray addObject:playerArray[i]];
+            }
+        }
+        tableRollId = -1;
+        cellAction = -1;
+        return;
+    }
+    if(rollId == -2) {//エンディング役職確認のテーブル
+        NSMutableArray *playerArray = infoDic[@"players"];
+        for(int i=0;i<playerArray.count;i++) {
+            
+            [tablePlayerArray addObject:playerArray[i]];
+            
+        }
+        tableRollId = -2;
+        cellAction = -2;
+        
+        //末尾に確認ボタンをつける
+        NSMutableDictionary *dic = [@{@"rollId":@-1} mutableCopy];
+        [tablePlayerArray addObject:dic];
+        return;
+    }
+
+    
+    cellAction = 0;
+    NSMutableArray *playerArray = infoDic[@"players"];
+    for(int i=0;i<playerArray.count;i++) {
+        NSMutableDictionary *player = playerArray[i];
+        if([player[@"isLive"]boolValue]) {
+            //狩人の道連れイベントはすでに自分も死亡しているので、テーブルには生存者全員を入れて良い
+            
+            int playersRollId = [player[@"rollId"]intValue];
+            
+            if(rollId == RollWerewolf) {
+                if(playersRollId != RollWerewolf) {//襲撃選択テーブルには人狼は含めない
+                    [tablePlayerArray addObject:player];
+                }
+                cellAction = RollWerewolf;
+            } else if(rollId == RollFortuneTeller || rollId == RollBodyguard || rollId == RollApprenticeFortuneTeller || rollId == RollWolfboy || rollId == RollTrapmaker) {
+                if(playerId != i) {//予言、護衛、狼の皮、罠選択テーブルには自身は含めない
+                    [tablePlayerArray addObject:player];
+                }
+                cellAction = rollId;
+            } else {
+                //それ以外は含める
+                [tablePlayerArray addObject:player];
+            }
+        }
+    }
+    
+    if(rollId == RollHunter) {
+        cellAction = RollHunter;
+    }
+    tableRollId = rollId;
+    
+    if(cellAction == 0) {
+        //末尾に確認ボタンをつける
+        NSMutableDictionary *dic = [@{@"rollId":@-1} mutableCopy];
+        [tablePlayerArray addObject:dic];
+    }
+}
+
+-(void) setRoll {
+    NSMutableArray *array = infoDic[@"rolls"];
+    NSMutableArray *rollArray = [NSMutableArray array];
+    for(int i=0;i<array.count;i++) {
+        int num = [array[i]intValue];
+        for(int j=0;j<num;j++) {
+            [rollArray addObject:@(i)];
+        }
+    }
+    
+    if([array[RollBaker]integerValue] >= 1) canBake = YES;
+    
+    killedToughs = [NSMutableArray array];
+    
+    NSMutableArray *shaffleRollArray = [LWUtility getRandomArray:rollArray];
+    
+    lackRoll = -1;
+    
+    if([infoDic[@"rules"][@"isLacking"]boolValue]) {
+        //役欠け処理
+        NSMutableArray *array = [NSMutableArray array];
+        for(NSInteger i=0;i<shaffleRollArray.count;i++) {
+            //人狼と妖狐と貴族以外のindexを取得
+            if([shaffleRollArray[i]integerValue] != RollWerewolf && [shaffleRollArray[i]integerValue] != RollFox && [shaffleRollArray[i]integerValue] != RollNoble) {
+                [array addObject:@(i)];
+            }
+        }
+        
+        NSInteger lackIndex = [array[ (int)arc4random_uniform((int)(array.count)) ]integerValue];
+        NSLog(@"before: index:%d rollId:%@",(int)lackIndex,shaffleRollArray[lackIndex]);
+        lackRoll = [shaffleRollArray[lackIndex]integerValue];
+        shaffleRollArray[lackIndex] = @(RollVillager);//村人に変更
+        NSLog(@"after : index:%d rollId:%@",(int)lackIndex,shaffleRollArray[lackIndex]);
+    }
+    
+    formerCurses = [NSMutableArray array];
+    apprenticeArray = [NSMutableArray array];
+    for(int i=0;i<[infoDic[@"players"] count];i++) {
+        [infoDic[@"players"][i] setObject:shaffleRollArray[i] forKey:@"rollId"];
+        [infoDic[@"players"][i] setObject:@YES forKey:@"isLive"];
+        [infoDic[@"players"][i] setObject:@(i) forKey:@"playerId"];
+        if([shaffleRollArray[i]integerValue] == RollCursed) {//呪われたものリストに追加
+            [formerCurses addObject:@(i)];
+        }
+        if([shaffleRollArray[i]integerValue] == RollApprenticeFortuneTeller) {//見習い預言者リストに追加
+            [apprenticeArray addObject:@(i)];
+        }
+    }
+    
+    //sendData
+    NSString *rollString = @"roll:";
+    for(NSInteger ri=0;ri<[LWUtility getMaxRollCount];ri++) {
+        NSInteger rCount = [infoDic[@"rolls"][ri]integerValue];
+        if(rCount >= 1) {
+            NSString *rollName = [LWUtility getCardInfofromId:(int)ri][@"name"];
+            rollString = [NSString stringWithFormat:@"%@「%@」：",rollString,rollName];
+            
+            for(NSMutableDictionary *playerInfo in infoDic[@"players"]) {
+                NSInteger rollId = [playerInfo[@"rollId"]integerValue];
+                if(ri == rollId) {
+                    rollString = [NSString stringWithFormat:@"%@%@ ",rollString,playerInfo[@"name"]];
+                }
+            }
+            rollString = [NSString stringWithFormat:@"%@\r\n",rollString];
+        }
+    }
+    if(lackRoll != -1) {
+        if(lackRoll == 0) {
+            rollString = [NSString stringWithFormat:@"%@\r\n役欠け：なし",rollString];
+        }
+        if(lackRoll > 0) {
+            rollString = [NSString stringWithFormat:@"%@\r\n役欠け：%@",rollString,[LWUtility getCardInfofromId:(int)lackRoll][@"name"]];
+        }
+    }
+    NSLog(@"%@",rollString);
+    [[LWBonjourManager sharedManager] sendData:rollString];
+}
+
+-(void) setBackScene :(SKScene *)backScene infoDic:(NSMutableDictionary *)_infoDic{
+    toBackScene = (LWSettingScene *)backScene;
+    infoDic = _infoDic;
+    
+    [self initBackground];
+}
+
+-(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = [touches anyObject];
+    CGPoint location = [touch locationInNode:self];
+    SKNode *node = [self nodeAtPoint:location];
+    
+    if([node.name isEqualToString:@"next"]) {
+        [self goNextPhase];
+    }
+}
+
+-(void)goNextPhase {
+    if([querry[@"phase"] isEqualToString:@"firstNight_opening"]) {
+        [self checkApprenticeAndChange];
+        querry[@"phase"] = @"firstNight_playerCheck";
+        querry[@"player"] = @0;
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"firstNight_playerCheck"]) {
+        querry[@"phase"] = @"firstNight_rollRotate";
+        //querry[@"player"] = @0;
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"firstNight_rollRotate"]) {
+        querry[@"phase"] = @"firstNight_rollCheck";
+        // querry[@"player"] = @([querry[@"player"]intValue] + 1);
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"firstNight_rollCheck"]
+                || [querry[@"phase"] isEqualToString:@"fortuneTeller"]
+                || [querry[@"phase"] isEqualToString:@"shaman"]) {
+        querry[@"phase"] = @"nextPlayer";
+       // querry[@"player"] = @([querry[@"player"]intValue] + 1);
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"nextPlayer"]) {
+        if(isFirstNight) {
+            querry[@"phase"] = @"firstNight_playerCheck";
+        } else {
+            querry[@"phase"] = @"night_playerCheck";
+        }
+        
+        int nPlayer = (int)[infoDic[@"players"] count];
+        
+        int nowPlayer = [querry[@"player"]intValue]+1;
+        while(true) {
+            if(nPlayer <= nowPlayer) break;
+            if([infoDic[@"players"][nowPlayer][@"isLive"]boolValue]) {
+                break;
+            }
+            nowPlayer++;
+        }
+        
+        if(nPlayer <= nowPlayer) {
+            querry[@"player"] = @0;
+            querry[@"phase"] = @"afternoon_opening";
+            day++;//日付を変更
+            
+            [self wolfKill];
+            
+            
+            //TODO::犠牲者チェック（最初の一回のみ系）
+            //犠牲者のなかに狩人がいるかどうか調べる
+            deadHunterList = [NSMutableArray array];
+            for(NSNumber *num in victimArray) {
+                NSInteger hPlayerId = [num integerValue];
+                NSInteger hRollId = [infoDic[@"players"][hPlayerId][@"rollId"]integerValue];
+                if(hRollId == RollHunter) {
+                    [deadHunterList addObject:@(hPlayerId)];
+                }
+            }
+            
+            
+           
+            
+            [self setBackground];
+            return;
+        } else {
+            querry[@"player"] = @(nowPlayer);
+            [self setBackground];
+            return;
+        }
+    }
+    if([querry[@"phase"] isEqualToString:@"afternoon_opening"]
+       || [querry[@"phase"] isEqualToString:@"immoral_afternoon_dead"]
+       || [querry[@"phase"] isEqualToString:@"hunter_afternoon_dead"]) {
+        
+        if([querry[@"phase"] isEqualToString:@"afternoon_opening"]) {
+            [self checkApprenticeAndChange];
+        }
+        
+        //TODO::犠牲者による分岐
+        //狐が死んでいたら背徳者チェック
+        victimImmoralArray = [self getLiveImmoralist];
+        if([self isFoxExterminated] && victimImmoralArray.count >= 1) {
+            fortunePlayerIndex = (int)[victimImmoralArray[0]integerValue];
+            querry[@"phase"] = @"immoral_afternoon_dead";
+            [victimImmoralArray removeObjectAtIndex:0];
+            [self setBackground];
+            return;
+        } else {
+            
+            //死んだ狩人がいる場合
+            if(deadHunterList.count >= 1) {
+                querry[@"phase"] = @"hunter_afternoon";
+                [self setBackground];
+                [deadHunterList removeObjectAtIndex:0];
+                return;
+            } else {
+                
+                //朝を続ける
+                querry[@"phase"] = @"afternoon_opening2";
+                [self setBackground];
+                
+                return;
+                
+            }
+            
+        }
+    }
+    
+
+    if([querry[@"phase"] isEqualToString:@"afternoon_opening2"]) {
+        querry[@"phase"] = @"afternoon_meeting";
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"afternoon_meeting"]) {
+        querry[@"phase"] = @"afternoon_voting";
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"night_opening"]) {
+        [self checkApprenticeAndChange];
+        querry[@"phase"] = @"night_playerCheck";
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"night_playerCheck"]) {
+        querry[@"phase"] = @"night_rollCheck";
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"night_rollCheck"]) {
+        querry[@"phase"] = @"nextPlayer";
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"excution"]
+       || [querry[@"phase"] isEqualToString:@"hunter_night_dead"]
+       || [querry[@"phase"] isEqualToString:@"immoral_night_dead"]
+       || [querry[@"phase"] isEqualToString:@"cat_night_dead"]) {
+        //TODO::処刑者チェックによる分岐
+        //処刑による（連鎖的な）死人が出たフェーズは[self checkExcutedPlayer]を読んでから、全てここを通す。
+        if(deadHunterList.count >= 1) {
+            querry[@"phase"] = @"hunter_night";
+            [self setBackground];
+            [deadHunterList removeObjectAtIndex:0];
+            return;
+        } else if(deadCatList.count >= 1){
+            querry[@"phase"] = @"cat_night_dead";
+            //猫又の昼処刑は生存者からランダムに一名死亡
+            NSMutableArray *liver = [self getLivePlayer];
+            NSInteger index = [LWUtility getRandInteger:liver.count];
+            fortunePlayerIndex = [liver[index]intValue];
+            [self setBackground];
+            [deadCatList removeObjectAtIndex:0];
+            return;
+        } else {
+            victimImmoralArray = [self getLiveImmoralist];
+            if([self isFoxExterminated] && victimImmoralArray.count >= 1) {
+                fortunePlayerIndex = (int)[victimImmoralArray[0]integerValue];
+                querry[@"phase"] = @"immoral_night_dead";
+                [victimImmoralArray removeObjectAtIndex:0];
+            } else {
+                querry[@"phase"] = @"night_opening";
+                
+            }
+        }
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"gameover"]) {
+        querry[@"phase"] = @"winner";
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"winner"]) {
+        querry[@"phase"] = @"ending";
+        [self setBackground];
+        return;
+    }
+    if([querry[@"phase"] isEqualToString:@"ending"]) {
+        //役欠けありなら、プレイヤーリストの最後の初日を削除。
+        if([infoDic[@"rules"][@"isLacking"]boolValue]) {
+            [infoDic[@"players"] removeObjectAtIndex:[infoDic[@"players"] count]-1];
+        }
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionRight duration:0.5];
+        [table removeFromSuperview];
+        [self.view presentScene:toBackScene transition:transition];
+    }
+}
+
+-(void)refresh {
+    
+    wolfEatInfo = [NSMutableDictionary dictionary];
+    
+    wolfArray = [NSMutableArray array];
+    for(int j=0;j<[infoDic[@"players"] count];j++) {
+        [wolfArray addObject:[@[@0,@0,@0]mutableCopy]];
+    }
+    knightPlayerIndexes = [NSMutableArray array];
+    victimArray = [NSMutableArray array];
+    
+    time = minute*60;
+    
+    deadHunterList = [NSMutableArray array];
+    deadCatList = [NSMutableArray array];
+    
+}
+
+
+-(void)wolfKill {
+    cursePlayerIndex = -1;
+    
+    //ここでタフガイ処理を行う
+    for(NSInteger i=0;i<killedToughs.count;i++) {
+        NSInteger playerId = [killedToughs[i]integerValue];
+        if([infoDic[@"players"][playerId][@"isLive"]boolValue]) {
+            [victimArray addObject:@(playerId)];
+            
+        }
+    }
+    killedToughs = [NSMutableArray array];
+    
+    NSMutableArray *killArray = [NSMutableArray array];
+    int max = 1;
+    for(int i=0;i<[infoDic[@"players"] count];i++) {
+        int point = [wolfArray[i][0]intValue] + [wolfArray[i][1]intValue]*2 + [wolfArray[i][2]intValue]*3 ;
+        if(max < point) {
+            max = point;
+            [killArray removeAllObjects];
+            [killArray addObject:@(i)];
+        } else if(max == point) {
+            [killArray addObject:@(i)];
+        }
+    }
+    
+    if(killArray.count > 0) {
+    
+        int killIndex = [killArray[ (int) arc4random_uniform((int)killArray.count)] intValue];
+        
+        NSString *string = [NSString stringWithFormat:@"log:狼たちの投票による噛み先結果：「%@」さん",infoDic[@"players"][killIndex][@"name"]];
+        [[LWBonjourManager sharedManager] sendData:string];
+        
+        //護衛成功か調べる
+        bool knightFlag = false;
+        for(int i=0;i<[knightPlayerIndexes count];i++) {
+            int knightIndex = [knightPlayerIndexes[i]intValue];
+            if(knightIndex == killIndex) {
+                knightFlag = true;
+                break;
+            }
+        }
+        //TODO::噛み処理
+        
+        //妖狐は噛めない
+        if([infoDic[@"players"][killIndex][@"rollId"]intValue] == RollFox) {
+            knightFlag = true;
+        }
+        //呪われたものの場合は、変数を書き換えるだけ　翌日の夜に人狼化
+        if([infoDic[@"players"][killIndex][@"rollId"]intValue] == RollCursed) {
+            if(!knightFlag) {
+                //護衛失敗ならば人狼化
+                knightFlag = true;//死なない
+                cursePlayerIndex = killIndex;
+            }
+        }
+        
+        //タフガイの場合は、今日は死なない。噛まれたタフガイリストに加えておく
+        if([infoDic[@"players"][killIndex][@"rollId"]integerValue] == RollToughGuy && !knightFlag) {
+            knightFlag = true;
+            [killedToughs addObject:@(killIndex)];
+        }
+        
+        //貴族の場合は奴隷が生存していたら死亡しない。奴隷は全員死亡
+        if([infoDic[@"players"][killIndex][@"rollId"]integerValue] == RollNoble && !knightFlag) {
+            NSMutableArray *array = [self getLiveRoll:RollSlave];
+            if(array.count >= 1) {
+                knightFlag = true;
+                for(NSNumber *num in array) {
+                    [victimArray addObject:num];
+                }
+            }
+        }
+        
+        //猫又の場合
+        if([infoDic[@"players"][killIndex][@"rollId"]integerValue] == RollCat && !knightFlag) {
+            //強く噛んだ人狼をvictimArrayに追加
+            NSInteger maxWolfIndex = -1;
+            NSInteger maxPower = -1;
+            NSMutableArray *wolfs = [self getLiveWerewolf];
+            NSMutableArray *victimWolfs = [NSMutableArray array];
+            for(NSNumber *num in wolfs) {
+                NSString *name = infoDic[@"players"][[num integerValue]][@"name"];
+                NSInteger power = [wolfEatInfo[name][@"power"]integerValue];
+                NSInteger index = [wolfEatInfo[name][@"eatIndex"]integerValue];
+                if(index == killIndex) {//猫を噛んだかどうか
+                    if(maxPower <= power) {
+                        if(maxPower < power) {
+                            victimWolfs = [NSMutableArray array];
+                        }
+                        maxPower = power;
+                        [victimWolfs addObject:num];
+                    }
+                }
+            }
+            maxWolfIndex = [victimWolfs[[LWUtility getRandInteger:victimWolfs.count]]integerValue];
+            
+            [victimArray addObject:@(maxWolfIndex)];
+        }
+        
+        if(!knightFlag) {
+            [victimArray addObject:@(killIndex)];
+        }
+    }
+    
+    
+    
+    victimArray = [LWUtility getRandomArray: [LWUtility removeSameObject:victimArray] ];
+    
+    
+    victim = @"";
+    if(victimArray.count <= 0 && !([infoDic[@"rules"][@"isLacking"]boolValue] && day == 1)) {
+        victim = @"いません";
+    } else {
+        for(int i=0;i<victimArray.count;i++) {
+            int victimIndex = [victimArray[i]intValue];
+            infoDic[@"players"][victimIndex][@"isLive"] = @NO;
+            
+            
+            if(![deathInfos.allKeys containsObject:infoDic[@"players"][victimIndex][@"name"]]) {
+                [deathInfos setObject:@{@"reason":@(DeathReasonAttacked),@"day":@(day)} forKey:infoDic[@"players"][fortunePlayerIndex][@"name"]];
+            }
+            //TODO::夜に死亡した人の変数を変更
+            victim = [NSString stringWithFormat:@"%@、「%@」さん",victim,infoDic[@"players"][victimIndex][@"name"]];
+        }
+    }
+    
+    if([infoDic[@"rules"][@"isLacking"]boolValue] && day == 1) {
+        victim = [NSString stringWithFormat:@"%@、「%@」さん",victim,@"初日犠牲者"];
+    }
+}
+
+-(int)isFinish {
+    int point = 0;
+    bool wolfzero = true;
+    for(int i=0;i<[infoDic[@"players"] count];i++) {
+        if([infoDic[@"players"][i][@"isLive"]boolValue]) {
+            if([infoDic[@"players"][i][@"rollId"]intValue] == RollWerewolf) {
+                point --;
+                wolfzero = false;
+            } else if([infoDic[@"players"][i][@"rollId"]intValue] == RollFox) {
+                //妖狐は終了判定に数えない
+            } else {
+                point ++;
+            }
+        }
+    }
+    
+    int result = 0;
+    if(wolfzero) {
+        result = 1;//村勝ち
+    }
+    if(point <= 0) {
+        result = -1;//人狼かち
+    }
+    if(result != 0) {//ゲーム終了
+        bool hasFox = false;
+        for(int i=0;i<[infoDic[@"players"] count];i++) {
+            if([infoDic[@"players"][i][@"isLive"]boolValue]) {
+                if([infoDic[@"players"][i][@"rollId"]intValue] == RollFox) {
+                    hasFox = true;
+                    break;
+                }
+            }
+        }
+        if(hasFox) {
+            result = 2;//妖狐勝ち
+        }
+    }
+    return result;
+}
+
+#pragma mark -
+#pragma mark tableDelegate
+
+-(void)cellEdit :(NSMutableDictionary*)info {
+    if(cellAction == -1) {
+        //処刑選択
+        int index = [info[@"playerId"]intValue];
+        NSString *name = infoDic[@"players"][index][@"name"];
+        fortunePlayerIndex = index;
+        UIAlertView *alert =
+        [[UIAlertView alloc] initWithTitle:@"確認" message:[NSString stringWithFormat:@"「%@」さんを処刑しますか？",name]
+                                  delegate:self cancelButtonTitle:@"いいえ" otherButtonTitles:@"はい", nil];
+        [alert show];
+        return;
+    }
+    
+    if(cellAction == 0 || cellAction == -2) {
+        if([info[@"name"] isEqualToString:CONFIRM]) {
+            [self goNextPhase];
+        } else {
+            return;
+        }
+    }
+    
+    if(cellAction == RollFortuneTeller) {
+        //予言者
+        int index = [info[@"playerId"]intValue];
+        NSString *name = infoDic[@"players"][index][@"name"];
+        fortunePlayerIndex = index;
+        UIAlertView *alert =
+        [[UIAlertView alloc] initWithTitle:@"確認" message:[NSString stringWithFormat:@"「%@」さんを占いますか？",name]
+                                  delegate:self cancelButtonTitle:@"いいえ" otherButtonTitles:@"はい", nil];
+        [alert show];
+    }
+    
+    if(cellAction == RollBodyguard) {
+        //ボディーガード
+        NSInteger lastGuardedIndex = -100;
+        int playerId = [querry[@"player"]intValue];
+        NSString *knightName = infoDic[@"players"][playerId][@"name"];
+        if([lastNightGuarded.allKeys containsObject:knightName]) {
+            lastGuardedIndex = [lastNightGuarded[knightName]integerValue];
+        }
+        
+        int index = [info[@"playerId"]intValue];
+        NSString *name = infoDic[@"players"][index][@"name"];
+        
+        if(![infoDic[@"rules"][@"canContinuousGuard"]boolValue] && index == lastGuardedIndex) {
+            //連続ガードなしの場合
+            UIAlertView *alert = [[UIAlertView alloc]initWithTitle:@"連続ガードなし" message:@"２夜連続で同じ人は守れません。" delegate:self cancelButtonTitle:nil otherButtonTitles:@"OK", nil];
+            [alert show];
+        } else {
+            fortunePlayerIndex = index;
+            UIAlertView *alert = [[UIAlertView alloc] initWithTitle:@"確認" message:[NSString stringWithFormat:@"「%@」さんを守りますか？",name] delegate:self cancelButtonTitle:@"いいえ" otherButtonTitles:@"はい", nil];
+            [alert show];
+        }
+    }
+    
+    if(cellAction == RollWerewolf) {
+        //人狼　襲撃
+        int index = [info[@"playerId"]intValue];
+        NSString *name = infoDic[@"players"][index][@"name"];
+        fortunePlayerIndex = index;
+        
+        UIAlertView *alert = [[UIAlertView alloc] init];
+        alert.delegate = self;
+        alert.title = @"確認";
+        alert.message = [NSString stringWithFormat:@"「%@」さんを襲撃しますか？",name];
+        [alert addButtonWithTitle:@"はい(feel)"];
+        [alert addButtonWithTitle:@"はい(should)"];
+        [alert addButtonWithTitle:@"はい(must)"];
+        [alert addButtonWithTitle:@"いいえ"];
+        [alert show];
+    }
+    
+    if(cellAction == RollHunter) {
+        //道連れ選択
+        int index = [info[@"playerId"]intValue];
+        NSString *name = infoDic[@"players"][index][@"name"];
+        fortunePlayerIndex = index;
+        UIAlertView *alert =
+        [[UIAlertView alloc] initWithTitle:@"確認" message:[NSString stringWithFormat:@"「%@」さんを道連れにしますか？",name]
+                                  delegate:self cancelButtonTitle:@"いいえ" otherButtonTitles:@"はい", nil];
+        [alert show];
+        return;
+    }
+    
+    //各アクションの追加
+}
+
+-(NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return tablePlayerArray.count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"cell"];
+    
+    
+    if(cellAction == 1) {//人狼テーブルなら仲間の票を記入
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"cell"];
+        }
+        
+        NSDictionary *playerInfo = tablePlayerArray[indexPath.row];
+        if([playerInfo[@"rollId"]intValue] != -1) {
+            NSString *name = playerInfo[@"name"];
+            UIImage *image = playerInfo[@"image"];
+            NSMutableArray *wolf = wolfArray[[playerInfo[@"playerId"]intValue]];
+            NSString *wolfVote = [NSString stringWithFormat:@"feel:%@ should:%@ must:%@",wolf[0],wolf[1],wolf[2]];
+            if([wolf[0]intValue]+[wolf[1]intValue]+[wolf[2]intValue] <= 0) {
+                wolfVote = @"";
+            }
+            cell.textLabel.text = name;
+            cell.imageView.image = image;
+            cell.detailTextLabel.text = wolfVote;
+        } else {
+            cell.textLabel.text = CONFIRM;
+        }
+    } else if(cellAction == -2) {//エンディング　役職確認用
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"cell"];
+        }
+        
+        NSDictionary *playerInfo = tablePlayerArray[indexPath.row];
+        if([playerInfo[@"rollId"]intValue] != -1) {
+            NSString *name = playerInfo[@"name"];
+            UIImage *image = playerInfo[@"image"];
+            NSInteger rollId = [playerInfo[@"rollId"]integerValue];
+            NSInteger playerId = [playerInfo[@"playerId"]integerValue];
+            
+            NSString *roll = [LWUtility getCardInfofromId: (int)rollId][@"name"];
+            if(rollId == RollWerewolf) {
+                BOOL isCurse = NO;
+                for(NSNumber *n in formerCurses) {
+                    if([n integerValue] == playerId) {
+                        isCurse = YES;
+                        break;
+                    }
+                }
+                if(isCurse) {
+                    roll = [NSString stringWithFormat:@"%@(呪われたもの)",roll];
+                }
+                
+                if(rollId == RollFortuneTeller) {
+                    NSUInteger index = [apprenticeArray indexOfObject:@(playerId)];
+                    if (index != NSNotFound) {
+                        //（元見習い預言者）
+                        roll = [NSString stringWithFormat:@"%@(見習い預言者)",roll];
+                    }
+                }
+            }
+            
+            cell.textLabel.text = roll;
+            cell.imageView.image = image;
+            cell.detailTextLabel.text = name;
+        } else {
+            cell.textLabel.text = CONFIRM;
+            cell.imageView.image = nil;
+            cell.detailTextLabel.text = nil;
+        }
+    } else {
+        if (!cell) {
+            cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"cell"];
+        }
+        
+        NSDictionary *playerInfo = tablePlayerArray[indexPath.row];
+        if([playerInfo[@"rollId"]intValue] != -1) {
+            NSString *name = playerInfo[@"name"];
+            UIImage *image = playerInfo[@"image"];
+            
+            if(cellAction == RollBodyguard && ![infoDic[@"rules"][@"canContinuousGuard"]boolValue]) {
+                int playerId = [querry[@"player"]intValue];
+                NSString *knightName = infoDic[@"players"][playerId][@"name"];
+                if([lastNightGuarded.allKeys containsObject:knightName]) {
+                    NSInteger lastGuardedIndex = [lastNightGuarded[knightName]integerValue];
+                    if(lastGuardedIndex == [playerInfo[@"playerId"]integerValue]) {
+                        cell.detailTextLabel.text = @"前日護衛先（連続ガードなし）";
+                    }
+                }
+            }
+            
+            cell.textLabel.text = name;
+            cell.imageView.image = image;
+        } else {
+            cell.textLabel.text = CONFIRM;
+        }
+    }
+    
+    return cell;
+}
+
+-(void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+    NSMutableDictionary *info;
+    
+    
+    if([cell.textLabel.text isEqualToString:CONFIRM]) {
+        info = [@{@"name":cell.textLabel.text} mutableCopy];
+    } else {
+        info = tablePlayerArray[indexPath.row];
+    }
+    [self performSelector:@selector(cellEdit:) withObject:info];
+}
+
+
+// ヘッダー配置
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section
+{
+    // ヘッダー画像配置
+    UILabel *label = [[UILabel alloc]init];
+    
+    NSString *string;
+    if(isFirstNight) {
+        string = [LWUtility getCardInfofromId:tableRollId][@"tableStringFirst"];
+    } else {
+        string = [LWUtility getCardInfofromId:tableRollId][@"tableString"];
+    }
+    label.textColor = [UIColor blackColor];
+    label.text = string;
+    label.textAlignment = NSTextAlignmentCenter;
+    label.backgroundColor = [UIColor groupTableViewBackgroundColor];
+    
+    return label;
+}
+
+// ヘッダーの高さ指定
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section
+{
+    return 30;
+}
+
+
+// アラートのボタンが押された時に呼ばれるデリゲート例文
+-(void)alertView:(UIAlertView*)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
+    
+    if(cellAction == 2) {
+        switch (buttonIndex) {
+            case 0:
+                //１番目のボタンが押されたときの処理を記述する
+                break;
+            case 1:
+                //２番目のボタンが押されたときの処理を記述する
+                querry[@"phase"] = @"fortuneTeller";
+                [self setBackground];
+                break;
+        }
+    }
+    
+    if(cellAction == -1) {
+        switch (buttonIndex) {
+            case 0:
+                //１番目のボタンが押されたときの処理を記述する
+                break;
+            case 1:
+                //２番目のボタンが押されたときの処理を記述する
+                querry[@"phase"] = @"excution";
+                [self setBackground];
+                break;
+        }
+    }
+    
+    if(cellAction == RollHunter) {
+        switch (buttonIndex) {
+            case 0:
+                //１番目のボタンが押されたときの処理を記述する
+                break;
+            case 1:
+                //２番目のボタンが押されたときの処理を記述する
+                if([querry[@"phase"] isEqualToString:@"hunter_afternoon"]) {
+                    querry[@"phase"] = @"hunter_afternoon_dead";
+                }
+                if([querry[@"phase"] isEqualToString:@"hunter_night"]) {
+                    querry[@"phase"] = @"hunter_night_dead";
+                }
+                [self setBackground];
+                break;
+        }
+    }
+    
+    if(cellAction == RollBodyguard) {
+        switch (buttonIndex) {
+            case 0:
+                //１番目のボタンが押されたときの処理を記述する
+                break;
+            case 1:
+                //２番目のボタンが押されたときの処理を記述する
+                [knightPlayerIndexes addObject:@(fortunePlayerIndex)];
+                
+                NSInteger nowPlayerId = [querry[@"player"]integerValue];
+                NSString *nowPlayerName = infoDic[@"players"][nowPlayerId][@"name"];
+                [lastNightGuarded setValue:@(fortunePlayerIndex) forKey:nowPlayerName];
+                
+                NSString *string = [NSString stringWithFormat:@"log:　　護衛先：「%@」さん",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+                [[LWBonjourManager sharedManager] sendData:string];
+                
+                querry[@"phase"] = @"nextPlayer";
+                [self setBackground];
+                break;
+        }
+    }
+    
+    if(cellAction == 1) {
+        NSInteger nowPlayerId = [querry[@"player"]integerValue];
+        NSString *nowPlayerName = infoDic[@"players"][nowPlayerId][@"name"];
+        
+        switch (buttonIndex) {
+            case 3:
+                break;
+            case 0:
+            {
+                wolfArray[fortunePlayerIndex][0] = @([wolfArray[fortunePlayerIndex][0]intValue]+1);
+                
+                [wolfEatInfo setValue:@{@"eatIndex":@(fortunePlayerIndex),@"power":@(0)} forKey:nowPlayerName];
+                
+                NSString *string = [NSString stringWithFormat:@"log:　　噛み先：「%@」さん feel",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+                [[LWBonjourManager sharedManager] sendData:string];
+                
+                querry[@"phase"] = @"nextPlayer";
+                [self setBackground];
+                break;
+            }
+            case 1:
+            {
+                wolfArray[fortunePlayerIndex][1] = @([wolfArray[fortunePlayerIndex][1]intValue]+1);
+                
+                [wolfEatInfo setValue:@{@"eatIndex":@(fortunePlayerIndex),@"power":@(1)} forKey:nowPlayerName];
+                
+                NSString *string = [NSString stringWithFormat:@"log:　　噛み先：「%@」さん should",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+                [[LWBonjourManager sharedManager] sendData:string];
+                
+                querry[@"phase"] = @"nextPlayer";
+                [self setBackground];
+                break;
+            }
+            case 2:
+            {
+                wolfArray[fortunePlayerIndex][2] = @([wolfArray[fortunePlayerIndex][2]intValue]+1);
+                
+                [wolfEatInfo setValue:@{@"eatIndex":@(fortunePlayerIndex),@"power":@(2)} forKey:nowPlayerName];
+                
+                NSString *string = [NSString stringWithFormat:@"log:　　噛み先：「%@」さん must",infoDic[@"players"][fortunePlayerIndex][@"name"]];
+                [[LWBonjourManager sharedManager] sendData:string];
+                
+                querry[@"phase"] = @"nextPlayer";
+                [self setBackground];
+                break;
+            }
+        }
+    }
+    
+}
+
+-(void)checkApprenticeAndChange {
+    if([[self getLiveRoll:RollFortuneTeller] count] <= 0) {
+        //預言者が村に存在しない場合は見習い預言者全員を一斉に預言者に変更する
+        for(NSNumber *num in apprenticeArray) {
+            infoDic[@"players"][[num integerValue]][@"rollId"] = @(RollFortuneTeller);
+        }
+    }
+}
+
+-(BOOL)isFoxExterminated {
+    BOOL flag = YES;
+    for(NSMutableDictionary *playerInfo in infoDic[@"players"]) {
+        BOOL isLive = [playerInfo[@"isLive"]boolValue];
+        NSInteger hRollId = [playerInfo[@"rollId"]integerValue];
+        if(isLive && hRollId == RollFox) {
+            flag = NO;
+            break;
+        }
+    }
+    return flag;
+}
+
+-(NSMutableArray*)getLiveImmoralist {
+    NSMutableArray *array = [NSMutableArray array];
+    for(NSMutableDictionary *playerInfo in infoDic[@"players"]) {
+        BOOL isLive = [playerInfo[@"isLive"]boolValue];
+        NSInteger playerId = [playerInfo[@"playerId"]integerValue];
+        NSInteger hRollId = [playerInfo[@"rollId"]integerValue];
+        if(isLive && hRollId == RollImmoralist) {
+            [array addObject:@(playerId)];
+        }
+    }
+    return array;
+}
+
+-(NSMutableArray*)getLiveWerewolf {
+    NSMutableArray *array = [NSMutableArray array];
+    for(NSMutableDictionary *playerInfo in infoDic[@"players"]) {
+        BOOL isLive = [playerInfo[@"isLive"]boolValue];
+        NSInteger playerId = [playerInfo[@"playerId"]integerValue];
+        NSInteger hRollId = [playerInfo[@"rollId"]integerValue];
+        if(isLive && hRollId == RollWerewolf) {
+            [array addObject:@(playerId)];
+        }
+    }
+    return array;
+}
+
+-(NSMutableArray*)getLiveRoll :(NSInteger)rollId {
+    NSMutableArray *array = [NSMutableArray array];
+    for(NSMutableDictionary *playerInfo in infoDic[@"players"]) {
+        BOOL isLive = [playerInfo[@"isLive"]boolValue];
+        NSInteger playerId = [playerInfo[@"playerId"]integerValue];
+        NSInteger hRollId = [playerInfo[@"rollId"]integerValue];
+        if(isLive && hRollId == rollId) {
+            [array addObject:@(playerId)];
+        }
+    }
+    return array;
+}
+
+-(NSMutableArray*)getLivePlayer {
+    NSMutableArray *array = [NSMutableArray array];
+    for(NSMutableDictionary *playerInfo in infoDic[@"players"]) {
+        BOOL isLive = [playerInfo[@"isLive"]boolValue];
+        NSInteger playerId = [playerInfo[@"playerId"]integerValue];
+        if(isLive) {
+            [array addObject:@(playerId)];
+        }
+    }
+    return array;
+}
+
+-(NSString *)getBreadString {
+    NSArray *breads = @[@"クロワッサン",@"イギリスパン",@"ピッツァ",@"デニッシュ",@"ピロシキ",@"ベーグル",@"グラハムブレッド",@"シナモンロール",@"ドーナツ",@"トルティーヤ",@"ナン",@"ジャムパン",@"あんぱん",@"クリームパン",@"メロンパン",@"カレーパン"];
+    return breads[[LWUtility getRandInteger:breads.count]];
+}
+
+-(NSString*)getDeathInfoString {
+    NSString *s = @"";
+    NSArray *reasons = @[@(DeathReasonAttacked),@(DeathReasonCurse),@(DeathReasonCat),@(DeathReasonSuicide),@(DeathReasonHunter),@(DeathReasonExcution)];
+    for(NSInteger i=1;i<=day;i++) {
+        s = [NSString stringWithFormat:@"%@%ld日目 ",s,i];
+        for(NSNumber *num in reasons) {
+            BOOL isFind = NO;
+            NSInteger reason = [num integerValue];
+            for(NSMutableDictionary *info in infoDic[@"players"]) {
+                if(i == [deathInfos[info[@"name"]][@"day"]integerValue] && reason == [deathInfos[info[@"name"]][@"reason"]integerValue]) {
+                    if(!isFind) {
+                        s = [NSString stringWithFormat:@"%@%@",s,[LWUtility getDeathReasonString:reason]];
+                        isFind = YES;
+                    }
+                    s = [NSString stringWithFormat:@"%@%@,",s,info[@"name"]];
+                }
+            }
+        }
+        s = [NSString stringWithFormat:@"%@\r\n",s];
+    }
+    
+    return s;
+}
+
+-(SKAction*) getLowBellSound:(NSInteger)count {
+    SKAction *lowbell = [SKAction playSoundFileNamed:@"bell05.caf" waitForCompletion:NO];
+    SKAction *wait = [SKAction waitForDuration:1.4];
+    
+    return [SKAction repeatAction:[SKAction sequence:@[lowbell,wait]] count:count];
+}
+
+-(SKAction*) getHighBellSound:(NSInteger)count {
+    SKAction *lowbell = [SKAction playSoundFileNamed:@"bell04.caf" waitForCompletion:NO];
+    SKAction *wait = [SKAction waitForDuration:1.4];
+    
+    return [SKAction repeatAction:[SKAction sequence:@[lowbell,wait]] count:count];
+}
+
+@end

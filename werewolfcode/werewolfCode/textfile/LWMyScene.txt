@@ -1,0 +1,41 @@
+//
+//  LWMyScene.m
+//  嘘つき人狼
+//
+//  Created by Yuki Murakami on 2014/09/21.
+//  Copyright (c) 2014年 yuki. All rights reserved.
+//
+
+#import "LWMyScene.h"
+
+#import "LWSettingScene.h"
+
+@implementation LWMyScene
+
+-(id)initWithSize:(CGSize)size {    
+    self = [super initWithSize:size];
+    
+    [self initBackground];
+    
+    return self;
+}
+
+-(void)initBackground {
+    SKSpriteNode *background = [[SKSpriteNode alloc]initWithImageNamed:@"top.jpg"];
+    background.size = self.size;
+    background.position = CGPointMake(self.size.width/2,self.size.height/2);
+    [self addChild:background];
+}
+
+-(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    /* Called when a touch begins */
+    SKScene *scene = [LWSettingScene sceneWithSize:self.size];
+    SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionLeft duration:1.0];
+    [self.view presentScene:scene transition:transition];
+}
+
+-(void)update:(CFTimeInterval)currentTime {
+    /* Called before each frame is rendered */
+}
+
+@end

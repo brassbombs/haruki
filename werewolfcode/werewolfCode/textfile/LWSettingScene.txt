@@ -1,0 +1,246 @@
+//
+//  LWSettingScene.m
+//  嘘つき人狼
+//
+//  Created by Yuki Murakami on 2014/09/21.
+//  Copyright (c) 2014年 yuki. All rights reserved.
+//
+
+#import "LWSettingScene.h"
+#import "LWUtility.h"
+#import "LWBonjourManager.h"
+
+@interface LWSettingScene () {
+    SKLabelNode *playCount;
+}
+
+@end
+
+@implementation LWSettingScene 
+
+-(id)initWithSize:(CGSize)size {
+    self = [super initWithSize:size];
+    
+    player = 0;
+    
+    [self initBackground];
+    
+    
+    
+    return self;
+}
+
+-(void)initBackground {
+    
+    [[LWBonjourManager sharedManager] sendData:@"roll:通信テストOK"];
+    
+    [self loadData];
+    
+    SKSpriteNode *background = [[SKSpriteNode alloc]initWithImageNamed:@"afternoon.jpg"];
+    background.size = self.size;
+    background.position = CGPointMake(self.size.width/2,self.size.height/2);
+    [self addChild:background];
+    
+    NSInteger nButton = 5;
+    for(int i=0;i<nButton;i++) {
+        NSString *name;
+        NSString *text;
+        if(i==0) {name = @"explain"; text = @"役職一覧";}
+        if(i==1) {name = @"player"; text = @"プレイヤー設定";}
+        if(i==2) {name = @"roll"; text = @"配役設定";}
+        if(i==3) {name = @"rule"; text = @"ルール設定";}
+        if(i==4) {name = @"start"; text = @"スタート";}
+        
+        SKSpriteNode *playerButton = [[SKSpriteNode alloc]initWithImageNamed:@"button.png"];
+        playerButton.size = CGSizeMake(self.size.width*0.8, self.size.height*0.1);
+        playerButton.position = CGPointMake(0, -self.size.height*0.5+playerButton.size.height+playerButton.size.height * 1.2 * (nButton-1-i));
+        playerButton.name = name;
+        SKLabelNode *playerButtonLabel = [[SKLabelNode alloc]init];
+        playerButtonLabel.text = text;
+        playerButtonLabel.fontSize = playerButton.size.height*0.5;
+        playerButtonLabel.fontColor = [UIColor blackColor];
+        playerButtonLabel.position = CGPointMake(0, -playerButton.size.height*0.15);
+        playerButtonLabel.name = name;
+        [playerButton addChild:playerButtonLabel];
+        [background addChild:playerButton];
+    }
+    
+    
+    playCount = [[SKLabelNode alloc]init];
+    playCount.text = [NSString stringWithFormat:@"プレイヤー数：%d人",(int)[informations[@"players"] count] ];
+    playCount.position = CGPointMake(0,self.size.height/2-70);
+    [background addChild:playCount];
+}
+
+-(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = [touches anyObject];
+    CGPoint location = [touch locationInNode:self];
+    SKNode *node = [self nodeAtPoint:location];
+    
+    if([node.name isEqualToString:@"player"]) {
+        if(!playerSettingScene) {
+            playerSettingScene = [LWPlayerSettingScene sceneWithSize:self.size];
+        }
+        
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionLeft duration:0.5];
+        [playerSettingScene setBackScene:self :informations[@"players"]];
+        [self.view presentScene:playerSettingScene transition:transition];
+    }
+    
+    if([node.name isEqualToString:@"explain"]) {
+        LWRoleTableScene *scene = [LWRoleTableScene sceneWithSize:self.size];
+        
+        
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionLeft duration:0.5];
+        [scene setBackScene:self];
+        [self.view presentScene:scene transition:transition];
+    }
+    
+    if([node.name isEqualToString:@"roll"]) {
+        if(!rollSettingScene) {
+            rollSettingScene = [LWRollSettingScene sceneWithSize:self.size];
+        }
+        int playerCount = [informations[@"players"] count];
+        NSMutableDictionary *info = [@{@"playerCount":@(playerCount),@"rollArray":informations[@"rolls"]} mutableCopy];
+        [(LWRollSettingScene *) rollSettingScene setBackScene:self infoDic:info];
+        
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionLeft duration:0.5];
+        
+        [self.view presentScene:rollSettingScene transition:transition];
+    }
+    
+    
+    if([node.name isEqualToString:@"rule"]) {
+        if(!ruleSettingScene) {
+            ruleSettingScene = [LWRuleSettingScene sceneWithSize:self.size];
+        }
+       
+        NSMutableDictionary *info = informations[@"rules"];
+        [(LWRuleSettingScene *) ruleSettingScene setBackScene:self infoDic:info];
+        
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionLeft duration:0.5];
+        
+        [self.view presentScene:ruleSettingScene transition:transition];
+    }
+    
+    
+    if([node.name isEqualToString:@"start"]) {
+        NSArray *roll = informations[@"rolls"];
+        int sum = 0;
+        for(int i=0;i<roll.count;i++) {
+            sum += [roll[i]intValue];
+        }
+        if(sum != [informations[@"players"]count]) {
+            UIAlertView *alert =
+            [[UIAlertView alloc] initWithTitle:@"確認" message:[NSString stringWithFormat:@"プレイヤー数と配役数があってません。"]
+                                      delegate:self cancelButtonTitle:nil otherButtonTitles:@"はい", nil];
+            [alert show];
+            return;
+        }
+        
+        if(!gameScene) {
+            gameScene = [LWGameScene sceneWithSize:self.size];
+        }
+        
+        [self saveData];
+        
+        NSMutableDictionary *info = informations;
+        [(LWGameScene *) gameScene setBackScene:self infoDic:info];
+        
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionLeft duration:0.5];
+        
+        [self.view presentScene:gameScene transition:transition];
+    }
+}
+
+-(void)saveData {
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+    NSDictionary *dic = informations;
+   // NSLog(@"%@",dic);
+    
+    NSMutableArray *playerImages = [NSMutableArray array];
+    NSMutableArray *playerNames = [NSMutableArray array];
+    for(int i=0;i<[informations[@"players"]count];i++) {
+        NSData *imageData = UIImagePNGRepresentation(informations[@"players"][i][@"image"]);
+        [playerImages addObject: imageData];
+        [playerNames addObject: informations[@"players"][i][@"name"]];
+    }
+    
+    [ud setObject:[playerNames copy] forKey:@"playerNames"];
+    [ud setObject:[playerImages copy] forKey:@"playerImages"];
+    [ud setObject:[informations[@"rules"] copy] forKey:@"ruleDic"];
+    [ud setObject:[informations[@"rolls"] copy] forKey:@"rollArray"];
+    
+    [ud synchronize];
+}
+
+-(void)loadData {
+    NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+    
+    NSMutableArray *playerNames = [[ud arrayForKey:@"playerNames"]mutableCopy];
+    if(!playerNames) {
+        playerNames = [NSMutableArray array];
+    }
+    NSMutableArray *playerImages = [NSMutableArray array];
+    NSMutableArray *playerImageData = [[ud arrayForKey:@"playerImages"]mutableCopy];
+    if(!playerImageData) {
+        playerImageData = [NSMutableArray array];
+    }
+    for(NSData *imageData in playerImageData) {
+        UIImage* image = [UIImage imageWithData:imageData];
+        [playerImages addObject:image];
+    }
+    
+    NSMutableArray *playersArray = [NSMutableArray array];
+    int playerSize = playerNames.count;
+    if(playerSize > playerImages.count) {
+        playerSize = playerImages.count;
+    }
+    for(int i=0;i<playerSize;i++) {
+        NSMutableDictionary *dic = [@{@"name":playerNames[i],@"image":playerImages[i]}mutableCopy];
+        [playersArray addObject:dic];
+    }
+    
+    if(!informations) {
+        informations = [NSMutableDictionary dictionary];
+    }
+    
+    informations[@"players"] = playersArray;
+    
+    NSMutableArray *rollArray = [[ud arrayForKey:@"rollArray"]mutableCopy];
+    if(!rollArray || rollArray.count < [LWUtility getMaxRollCount]) {
+        rollArray = [NSMutableArray array];
+        for(NSInteger i=0;i<[LWUtility getMaxRollCount];i++) {
+            [rollArray addObject:@(0)];
+        }
+    }
+    NSMutableDictionary *ruleDic = [[ud dictionaryForKey:@"ruleDic"]mutableCopy];
+    if(!ruleDic) {
+        ruleDic = [NSMutableDictionary dictionary];
+    }
+    
+    informations[@"rolls"] = rollArray;
+    informations[@"rules"] = ruleDic;
+}
+
+-(void)setPlayerInfo :(NSMutableArray *)playerInfo {
+    informations[@"players"] = playerInfo;
+    
+    playCount.text = [NSString stringWithFormat:@"プレイヤー数：%d人",[informations[@"players"] count] ];
+    
+    //[self saveData];
+}
+
+-(void)setRollInfo :(NSMutableArray *)rollInfo {
+    informations[@"rolls"] = rollInfo;
+    
+    //[self saveData];
+}
+
+-(void)setRuleInfo :(NSMutableDictionary *)ruleInfo {
+    informations[@"rules"] = ruleInfo;
+    
+    //[self saveData];
+}
+
+@end

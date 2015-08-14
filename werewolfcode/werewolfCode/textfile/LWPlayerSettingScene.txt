@@ -1,0 +1,181 @@
+//
+//  LWPlayerSettingScene.m
+//  嘘つき人狼
+//
+//  Created by Yuki Murakami on 2014/09/21.
+//  Copyright (c) 2014年 yuki. All rights reserved.
+//
+
+#import "LWPlayerSettingScene.h"
+#import "LWAddPlayerScene.h"
+#import "LWSettingScene.h"
+#import "LWUtility.h"
+
+@interface LWPlayerSettingScene () <UIAlertViewDelegate>{
+    
+}
+
+@end
+
+@implementation LWPlayerSettingScene
+
+-(id)initWithSize:(CGSize)size {
+    self = [super initWithSize:size];
+    
+    [self initBackground];
+    
+    playerArray = [NSMutableArray array];
+    //[self debugSet];
+    
+    return self;
+}
+
+-(void)initBackground {
+    SKSpriteNode *background = [[SKSpriteNode alloc]initWithImageNamed:@"night.jpg"];
+    background.size = self.size;
+    background.position = CGPointMake(self.size.width/2,self.size.height/2);
+    [self addChild:background];
+    
+    
+    SKSpriteNode *playerButton = [LWUtility makeButton:@"プレイヤー追加" size:CGSizeMake(self.size.width*0.8,self.size.height*0.1) name:@"add" position:CGPointMake(0,self.size.height/2-50)];
+    [background addChild:playerButton];
+    
+    SKSpriteNode *backButton = [LWUtility makeButton:@"戻る" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"back" position:CGPointMake(0, -self.size.height/2+30)];
+    [background addChild:backButton];
+    
+    SKSpriteNode *shaffleButton = [LWUtility makeButton:@"シャッフル" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"shaffle" position:CGPointMake(0, -self.size.height/2+100)];
+    [background addChild:shaffleButton];
+    
+    
+    CGFloat margin = 5;
+    CGFloat upmargin = 100;
+    mytable = [[UITableView alloc]initWithFrame:CGRectMake(margin,upmargin,self.size.width-margin*2,self.size.height-upmargin*2.4)];
+    mytable.delegate = self;
+    mytable.dataSource = self;
+    mytable.rowHeight = 80;
+}
+
+-(void) setBackScene :(SKScene *)backScene :(NSMutableArray *) array{
+    toBackScene = backScene;
+    playerArray = [array mutableCopy];
+}
+
+-(void)willMoveFromView:(SKView *)view {
+    [mytable removeFromSuperview];
+}
+
+-(void)didMoveToView:(SKView *)view {
+    
+    [self.view addSubview:mytable];
+    [mytable reloadData];
+}
+
+-(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = [touches anyObject];
+    CGPoint location = [touch locationInNode:self];
+    SKNode *node = [self nodeAtPoint:location];
+    
+    if([node.name isEqualToString:@"add"]) {
+        LWAddPlayerScene *scene = [LWAddPlayerScene sceneWithSize:self.size];
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionLeft duration:0.5];
+        [scene setBackScene:self editFlag:false infoDic:nil];
+        [self.view presentScene:scene transition:transition];
+    }
+    
+    if([node.name isEqualToString:@"back"]) {
+        [(LWSettingScene *)toBackScene setPlayerInfo:playerArray];
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionRight duration:0.5];
+        [self.view presentScene:toBackScene transition:transition];
+    }
+    
+    if([node.name isEqualToString:@"shaffle"]) {
+        //プレイヤーの順番をシャッフル
+        UIAlertView *alert =
+        [[UIAlertView alloc] initWithTitle:@"確認" message:[NSString stringWithFormat:@"プレイヤーの順番をシャッフルしますか？"]
+                                  delegate:self cancelButtonTitle:@"いいえ" otherButtonTitles:@"はい", nil];
+        [alert show];
+        
+        
+    }
+}
+
+-(void)addTable :(NSMutableDictionary *)info {
+    [playerArray addObject:info];
+    [mytable reloadData];
+}
+
+-(void)deleteTable :(int) row {
+    [playerArray removeObjectAtIndex:row];
+    [mytable reloadData];
+}
+
+-(void)editTable :(int)row info:(NSMutableDictionary *)info {
+    [playerArray replaceObjectAtIndex:row withObject:info];
+    [mytable reloadData];
+}
+
+-(void)cellEdit :(NSMutableDictionary *)info {
+    LWAddPlayerScene *scene = [LWAddPlayerScene sceneWithSize:self.size];
+    SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionLeft duration:0.5];
+    [scene setBackScene:self editFlag:true infoDic:info];
+    [self.view presentScene:scene transition:transition];
+}
+
+#pragma mark -
+#pragma mark tableDelegate
+
+-(NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return playerArray.count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"cell"];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"cell"];
+    }
+    
+    NSDictionary *playerInfo = playerArray[indexPath.row];
+    NSString *name = playerInfo[@"name"];
+    UIImage *image = playerInfo[@"image"];
+    
+    cell.textLabel.text = name;
+    cell.imageView.image = image;
+    return cell;
+}
+
+-(void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
+    
+    NSMutableDictionary *info = [ @{@"name":cell.textLabel.text,@"image":cell.imageView.image,@"row":@(indexPath.row)} mutableCopy];
+    
+    [self performSelector:@selector(cellEdit:) withObject:info];
+}
+
+-(void)debugSet {
+    for(int i=0;i<8;i++) {
+        UIImage *image = [UIImage imageNamed:[NSString stringWithFormat:@"card%d.png",i]];
+        NSString *name = [NSString stringWithFormat:@"player%d",i+1];
+        
+        NSMutableDictionary *dic = [@{@"name":name,@"image":image} mutableCopy];
+        [playerArray addObject:dic];
+    }
+}
+
+// アラートのボタンが押された時に呼ばれるデリゲート例文
+-(void)alertView:(UIAlertView*)alertView clickedButtonAtIndex:(NSInteger)buttonIndex {
+    
+    switch (buttonIndex) {
+        case 0:
+            //１番目のボタンが押されたときの処理を記述する
+            break;
+        case 1:
+            //２番目のボタンが押されたときの処理を記述する
+            playerArray = [LWUtility getRandomArray:playerArray];
+            [mytable reloadData];
+            break;
+    }
+    
+}
+
+@end

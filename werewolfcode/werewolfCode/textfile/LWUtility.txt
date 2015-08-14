@@ -1,0 +1,399 @@
+//
+//  LWUtility.m
+//  嘘つき人狼
+//
+//  Created by Yuki Murakami on 2014/09/21.
+//  Copyright (c) 2014年 yuki. All rights reserved.
+//
+
+#import "LWUtility.h"
+
+
+
+@implementation LWUtility
+
+
++(NSMutableArray *) getDefaultRollArray :(int) count {
+                                 //0村1狼2占 3霊4狂5ボ 6共7狐
+    NSMutableArray *result = [@[@[@0,@0,@0,@0,@0,@0,@0,@0],//0
+                                @[@1,@0,@0,@0,@0,@0,@0,@0],//1
+                                @[@2,@0,@0,@0,@0,@0,@0,@0],
+                                @[@2,@1,@0,@0,@0,@0,@0,@0],
+                                @[@3,@1,@0,@0,@0,@0,@0,@0],
+                                @[@3,@1,@1,@0,@0,@0,@0,@0],//5
+                                @[@4,@1,@1,@0,@0,@0,@0,@0],
+                                @[@5,@1,@1,@0,@0,@0,@0,@0],
+                                @[@5,@2,@1,@0,@0,@0,@0,@0],
+                                @[@5,@2,@1,@1,@0,@0,@0,@0],
+                                @[@5,@2,@1,@1,@1,@0,@0,@0],//10
+                                @[@5,@2,@1,@1,@1,@1,@0,@0],
+                                @[@6,@2,@1,@1,@1,@1,@0,@0],
+                                @[@5,@2,@1,@1,@1,@1,@2,@0],
+                                @[@5,@2,@1,@1,@1,@1,@2,@1],
+                                @[@6,@2,@1,@1,@1,@1,@2,@1],//15
+                                @[@6,@3,@1,@1,@1,@1,@2,@1],
+                                @[@7,@3,@1,@1,@1,@1,@2,@1],
+                                @[@8,@3,@1,@1,@1,@1,@2,@1],
+                                @[@9,@3,@1,@1,@1,@1,@2,@1],
+                                @[@9,@4,@1,@1,@1,@1,@2,@1],//20
+                                @[@10,@4,@1,@1,@1,@1,@2,@1],
+                                @[@11,@4,@1,@1,@1,@1,@2,@1],
+                                @[@11,@4,@1,@1,@1,@1,@2,@2],
+                                @[@12,@4,@1,@1,@1,@1,@2,@2],
+                                @[@12,@5,@1,@1,@1,@1,@2,@2],//25
+                                @[@13,@5,@1,@1,@1,@1,@2,@2],
+                                @[@14,@5,@1,@1,@1,@1,@2,@2],
+                                @[@13,@5,@1,@1,@2,@1,@3,@2],
+                                @[@13,@6,@1,@1,@2,@1,@3,@2],
+                                @[@12,@7,@1,@1,@2,@2,@3,@2],//30
+                                ] mutableCopy];
+    for(NSInteger i=0;i<31;i++) {
+        result[i] = [result[i]mutableCopy];
+        for(NSInteger j=0;j<[self getMaxRollCount]-8;j++) {
+            [result[i] addObject:@(0)];
+        }
+    }
+    return result[count];
+}
+
++(int) getMaxRollCount {
+    //TODO::役職追加時変更点
+    return 25;
+}
+
++(NSMutableDictionary *) getCardInfofromId :(int) cardId {
+    NSMutableDictionary *infoDic = [NSMutableDictionary dictionary];
+    
+    NSString *name = @"name";
+    NSString *explain = @"explain";
+    bool hasTable = false;//夜のアクションでテーブルが必要か
+    bool hasTableFirst = false;//初夜のアクションでテーブルが必要か
+    NSString *tableString = @"";//夜のアクションでテーブルに表示される文字列
+    NSString *tableStringFirst = @"";//初夜のアクションでテーブルに表示される文字列
+    
+    switch (cardId) {
+        case -2:
+            name = @"エンディング用";
+            hasTable = true;
+            tableString = @"役職を確認してください。";
+            break;
+        case -1:
+            name = @"処刑用";
+            hasTable = true;
+            tableString = @"処刑者を選択してください。";
+            break;
+        case RollVillager:
+            name = @"村人";//実装済み
+            hasTable = false;
+            explain = @"村人は特殊な能力を持たないただの一般人ですが、このゲームの主人公でもあります。他の村人や特殊能力を持った仲間たちと協力して人狼を処刑し、全滅させましょう。";
+            break;
+        case RollWerewolf:
+            name = @"人狼";//実装済み
+            hasTable = true;
+            hasTableFirst = true;
+            tableStringFirst = @"仲間の人狼を確認してください。";
+            tableString = @"襲撃先を選択してください。";
+            explain = @"人狼は毎晩目を覚まし、村の人間を一人ずつ選んで喰い殺していきます。人狼同士で協力して人間を喰い尽くし、村を全滅させてしまいましょう。";
+            break;
+        case RollFortuneTeller:
+            name = @"予言者";//実装済み
+            hasTable = true;
+            tableString = @"予言先を選択してください。";
+            hasTableFirst = true;
+            tableStringFirst = @"予言先を選択してください。";
+            explain = @"予言者は毎晩目を覚まし、自分が人狼だと疑っている人物を１人指定してその人物が人狼かそうでないかを知ることができます。";
+            break;
+        case RollShaman:
+            name = @"霊媒師";//実装済み
+            hasTable = false;
+            explain = @"霊媒師は毎晩目を覚まし、その日の昼のターンに処刑された人が人狼だったのかそうでなかったのかを知ることができます。";
+            break;
+        case RollMadman:
+            name = @"狂人";//実装済み
+            hasTable = false;
+            explain = @"狂人は何も能力を持っていませんが、人狼側の人間です。人狼が勝利した時、自らも勝者となります。予言者に見られてもただの人間と判定されます。積極的に役職を騙り村を混乱させましょう。";
+            break;
+        case RollBodyguard:
+            name = @"ボディーガード";//実装済み
+            hasTable = true;
+            tableString = @"護衛先を選択してください。";
+            explain = @"ボディーガードは毎晩目を覚まし、誰かを一人指定してその人物を人狼の襲撃から守ります。ただし、自分自身を守ることはできません。";
+            break;
+        case RollJointOwner:
+            name = @"共有者";//実装済み
+            hasTable = false;
+            hasTableFirst = true;
+            tableStringFirst = @"共有者を確認してください。";
+            explain = @"共有者は必ず２人一組として存在し、お互いに相手が村人ということを初日の夜に確認できます。パートナーが疑われてしまったときは自らが共有者だと名乗り出て無実を証明しましょう。";
+            break;
+        case RollFox:
+            name = @"妖狐";//実装済み
+            hasTableFirst = true;
+            tableStringFirst = @"仲間の妖狐を確認してください。";
+            hasTable = false;
+            explain = @"妖狐は村人にも人狼にも属さない、第３の勢力です。ゲームが終了した時に妖狐が生き残っていれば、人狼でもなく村人でもなく、妖狐陣営の勝利となります。あなたは人狼に襲撃されても死にませんが、予言者に正体を見られると死んでしまいます。なお、勝利条件についてあなたは村人にも人狼にもカウントされません。";
+            break;
+        case RollPossessed:
+            name = @"狼憑き";//実装済み
+            hasTable = false;
+            explain = @"狼憑きは特殊な能力を持たない村人側の人間です。しかし予言者があなたの正体を見たとき、あなたは人間であるにも関わらず人狼として判定されてしまいます。";
+            break;
+        case RollToughGuy:
+            name = @"タフガイ";//実装済み
+            hasTable = false;
+            explain = @"タフガイは人狼の襲撃にあってもすぐには死にません。１日の間は生き延び、翌日の夜死亡します。ただし昼の処刑では普通に殺されてしまいます。夜に犠牲者がいなかった場合、あなたが襲撃されてしまった可能性があるのです。";
+            break;
+        case RollApprenticeFortuneTeller:
+            name = @"見習い予言者";//実装済み
+            hasTable = false;
+            explain = @"見習い予言者はゲーム開始時には特殊な能力を持っていません。しかし、夜が来たときに予言者がすでにいない場合、その夜から覚醒して新たな予言者となります。";
+            break;
+        case RollWolfboy:
+            name = @"狼少年(未実装)";
+            hasTable = true;
+            tableString = @"狼の皮をかぶせる先を選択してください。";
+            hasTableFirst = true;
+            tableStringFirst = @"狼の皮をかぶせる先を選択してください。";
+            explain = @"狼少年は毎晩好きな人物を１人指定して、その人物が予言者に見られた時の判定をその晩の間だけ人狼に変えてしまいます。霊媒師など予言者以外の役職の判定には影響を及ぼしません。";
+            break;
+        case RollTrapmaker:
+            name = @"罠師(未実装)";
+            hasTable = true;
+            tableString = @"罠の仕掛け先を選択してください。";
+            explain = @"";
+            break;
+        case RollCursed:
+            name = @"呪われた者";//実装済み
+            hasTable = false;
+            explain = @"ゲーム開始時は能力を持たないただの村人ですが、夜に人狼に襲撃された場合、あなたは死亡せずに生き残り、翌日の夜に新たな人狼として目覚めます。それ以降は人狼チームとして勝利を目指しましょう。";
+            break;
+        case RollKing:
+            name = @"王様(未実装)";
+            hasTable = false;
+            explain = @"";
+            break;
+        case RollDictator:
+            name = @"独裁者(未実装)";
+            hasTable = false;
+            explain = @"";
+            break;
+        case RollMotherFortuneTeller:
+            name = @"予言者のママ";//実装済み
+            hasTableFirst = true;
+            tableStringFirst = @"予言者を確認してください。";
+            hasTable = false;
+            explain = @"予言者のママははじめの夜に目を覚まし、誰が予言者なのか知ることができます。予言者が複数名乗り出たときは誰が本物か証明してあげましょう。";
+            break;
+        case RollHunter:
+            name = @"狩人";//実装済み
+            hasTable = false;
+            tableString = @"道連れにする人を選択してください。";
+            explain = @"狩人は自らが死亡した際に役職が公開され、その時点での生存者を一人指名しその人物を道連れにして死亡させます。人狼を仕留められるかもしれませんが、罪のない人間を殺してしまうかもしれないハイリスク・ハイリターンな役職です。";
+            break;
+        case RollMiming:
+            name = @"ものまね師";//実装済み
+            hasTable = false;
+            explain = @"ものまね師自身は能力を持たないただの人間ですが、あなたはゲーム中に必ず何らかの役職を演じなければなりません。またゲーム中に自分がものまね師だと宣言してもいけません。うまく人狼だけを騙しましょう。";
+            break;
+        case RollFanatic:
+            name = @"狂信者";//実装済み
+            hasTableFirst = true;
+            tableStringFirst = @"人狼を確認してください。";
+            hasTable = false;
+            explain = @"狂信者は何も能力を持っていませんが、人狼側の人間です。人狼が勝利した時、自らも勝者となります。予言者に見られてもただの人間と判定されます。ただし初日の夜に誰が人狼であるかを知ることができる人狼の強力な味方です。";
+            break;
+        case RollImmoralist:
+            name = @"背徳者";//実装済み
+            hasTableFirst = true;
+            tableStringFirst = @"妖狐を確認してください。";
+            hasTable = false;
+            explain = @"背徳者は村人とほとんど同じですが、村人にも人狼にも属さない第３の勢力です。ゲームが終了した時に妖狐が生き残っていれば、妖狐陣営として勝利します。背徳者は「妖狐」が誰かを知ることができ、妖狐が死亡・殺害されて全滅した際、後を追って死亡します。その場合、後追い自殺として表示されます。";
+            break;
+        case RollCat:
+            name = @"猫又";//実装済み
+            hasTableFirst = false;
+            hasTable = false;
+            explain = @"猫又は村人陣営です。猫又は昼の会議で処刑された場合、生存者の中からランダムで一人を道連れに死亡させます。しかし夜に人狼に噛まれた場合は、最も強く噛んできた人狼を１匹道連れにすることができます。頑張って人狼に噛まれるよう振舞いましょう。";
+            break;
+        case RollBaker:
+            name = @"パン屋";//実装済み
+            hasTableFirst = false;
+            hasTable = false;
+            explain = @"パン屋は村人陣営です。朝になった時にパン屋が生存していれば、「今日もパン屋が美味しいパンを焼いてくれました。」と表示されます。朝になったときにパン屋が死亡していた場合は、「今日からは美味しいパンが食べれなくなります。」と表示されます。";
+            break;
+        case RollNoble:
+            name = @"貴族";//実装済み
+            hasTableFirst = false;
+            hasTable = false;
+            explain = @"貴族は村人陣営です。あなたは人狼に襲撃された場合でも、奴隷が生存していれば身代わりに死亡してくれます。奴隷からは貴族が誰であるかわかりますが、あなたからは奴隷が誰であるかはわかりません。また貴族は初日には死亡しません。";
+            break;
+        case RollSlave:
+            name = @"奴隷";//実装済み
+            hasTableFirst = true;
+            tableStringFirst = @"貴族を確認してください。";
+            hasTable = false;
+            explain = @"奴隷は村人陣営です。村人陣営の勝利かつ貴族の死亡が勝利条件です。あなたが生存している時に、貴族が人狼に襲撃された場合身代わりに死亡します。奴隷からは貴族が誰であるかわかりますが、貴族からは奴隷が誰であるかはわかりません。";
+            break;
+            //TODO::役職追加時変更点
+        default:
+            break;
+    }
+    
+    infoDic = [@{@"name":name,@"explain":explain,@"hasTable":@(hasTable),@"tableString":tableString,
+                 @"hasTableFirst":@(hasTableFirst),@"tableStringFirst":tableStringFirst} mutableCopy];
+    
+    return infoDic;
+}
+
+
++(NSMutableArray*) getRandomArray :(NSMutableArray*)array {
+    NSMutableArray *result = [NSMutableArray array];
+    
+    int count = (int)array.count;
+    
+    for(int i=0;i<count*100;i++) {
+        int f1 = (int) arc4random_uniform(count);
+        int f2 = (int) arc4random_uniform(count);
+        
+        id object = array[f1];
+        array[f1] = array[f2];
+        array[f2] = object;
+    }
+    
+    for(int i=0;i<count;i++) {
+        [result addObject:array[i]];
+    }
+    
+    return result;
+}
+
+
++(NSMutableArray*) removeSameObject :(NSMutableArray *)array {
+    NSMutableArray *fixedArray = [[[[NSSet alloc] initWithArray:[NSArray arrayWithArray:array]] allObjects] mutableCopy];
+    return fixedArray;
+}
+
+
++(SKTexture *) getCardTexture :(int) cardId {
+    NSString *filename = [NSString stringWithFormat:@"card%d.png",cardId];
+    SKTexture *texture = [SKTexture textureWithRect:CGRectMake(0.03,0.2,0.94,0.8) inTexture:[SKTexture textureWithImageNamed:filename]];
+    return texture;
+}
+
+
++(SKSpriteNode *) makeButton :(NSString*) text
+                         size:(CGSize)size
+                         name:(NSString*)name
+                     position:(CGPoint)position
+{
+    SKSpriteNode *button = [[SKSpriteNode alloc]initWithImageNamed:@"button.png"];
+    button.size = size;
+    button.position = position;
+    button.name = name;
+    SKLabelNode *buttonLabel = [[SKLabelNode alloc]init];
+    buttonLabel.text = text;
+    buttonLabel.fontSize = button.size.height*0.5;
+    buttonLabel.fontName = @"HiraKakuProN-W3";
+    buttonLabel.fontColor = [UIColor blackColor];
+    buttonLabel.position = CGPointMake(0, -button.size.height*0.15);
+    buttonLabel.name = name;
+    [button addChild:buttonLabel];
+    
+    return button;
+}
+
++(SKSpriteNode *) makeFrameNode :(CGSize)size position:(CGPoint)position color:(UIColor*)color texture:(SKTexture *)texture {
+    SKSpriteNode *explain = [[SKSpriteNode alloc]initWithImageNamed:@"frame.png"];
+    explain.size = size;
+    explain.position = position;
+    SKSpriteNode *content = [[SKSpriteNode alloc]init];
+    content.size = CGSizeMake(explain.size.width*0.9,explain.size.height*0.92);
+    content.position = CGPointMake(0,0);
+    if(!texture) {
+        content.color = color;
+        content.colorBlendFactor = 1.0;
+    } else {
+        content.texture = texture;
+    }
+    [explain addChild:content];
+    
+    return explain;
+}
+
++ (UIImage*)rotateImage:(UIImage*)img angle:(int)angle
+{
+    CGImageRef      imgRef = [img CGImage];
+    CGContextRef    context;
+    
+    switch (angle) {
+        case 90:
+            UIGraphicsBeginImageContextWithOptions(CGSizeMake(img.size.height, img.size.width), YES, img.scale);
+            context = UIGraphicsGetCurrentContext();
+            CGContextTranslateCTM(context, img.size.height, img.size.width);
+            CGContextScaleCTM(context, 1, -1);
+            CGContextRotateCTM(context, M_PI_2);
+            break;
+        case 180:
+            UIGraphicsBeginImageContextWithOptions(CGSizeMake(img.size.width, img.size.height), YES, img.scale);
+            context = UIGraphicsGetCurrentContext();
+            CGContextTranslateCTM(context, img.size.width, 0);
+            CGContextScaleCTM(context, 1, -1);
+            CGContextRotateCTM(context, -M_PI);
+            break;
+        case 270:
+            UIGraphicsBeginImageContextWithOptions(CGSizeMake(img.size.height, img.size.width), YES, img.scale);
+            context = UIGraphicsGetCurrentContext();
+            CGContextScaleCTM(context, 1, -1);
+            CGContextRotateCTM(context, -M_PI_2);
+            break;
+        default:
+            return img;
+            break;
+    }
+    
+    CGContextDrawImage(context, CGRectMake(0, 0, img.size.width, img.size.height), imgRef);
+    UIImage*    result = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return result;
+}
+
++ (NSString*)getFortuneButtonString :(FortuneTellerMode)mode {
+    if(mode == FortuneTellerModeFree) return @"初日占い：あり";
+    if(mode == FortuneTellerModeNone) return @"初日占い：なし";
+    if(mode == FortuneTellerModeRevelation) return @"初日占い：お告げ";
+    return @"";
+}
+
++ (NSInteger)getRandInteger :(NSInteger)maxInteger {
+    return (NSInteger)arc4random_uniform((int)maxInteger);
+}
+
++ (NSString*)getDeathReasonString: (DeathReason)reason {
+    NSString *s = @"(他)";
+    switch (reason) {
+        case DeathReasonAttacked:
+            s = @"(噛)";
+            break;
+        case DeathReasonExcution:
+            s = @"(吊)";
+            break;
+        case DeathReasonCurse:
+            s = @"(呪)";
+            break;
+        case DeathReasonSuicide:
+            s = @"(自)";
+            break;
+        case DeathReasonCat:
+            s = @"(猫)";
+            break;
+        case DeathReasonHunter:
+            s = @"(狩)";
+            break;
+            
+        default:
+            break;
+    }
+    return s;
+}
+
+@end

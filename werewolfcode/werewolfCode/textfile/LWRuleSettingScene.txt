@@ -1,0 +1,175 @@
+//
+//  LWRuleSettingScene.m
+//  嘘つき人狼
+//
+//  Created by Yuki Murakami on 2014/09/22.
+//  Copyright (c) 2014年 yuki. All rights reserved.
+//
+
+#import "LWRuleSettingScene.h"
+#import "LWUtility.h"
+
+@implementation LWRuleSettingScene
+
+-(id)initWithSize:(CGSize)size {
+    self = [super initWithSize:size];
+    
+    
+    
+    return self;
+}
+
+-(void)initBackground {
+    
+    SKSpriteNode *background = [[SKSpriteNode alloc]initWithImageNamed:@"night.jpg"];
+    background.size = self.size;
+    background.position = CGPointMake(self.size.width/2,self.size.height/2);
+    [self addChild:background];
+    
+   
+    
+    SKSpriteNode *backButton = [LWUtility makeButton:@"戻る" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"back" position:CGPointMake(0, -self.size.height/2+35)];
+    [background addChild:backButton];
+    
+    
+    SKSpriteNode *defaultButton = [LWUtility makeButton:@"推奨設定" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"default" position:CGPointMake(0, -self.size.height/2+105)];
+    [background addChild:defaultButton];
+    
+    SKSpriteNode *timerButton = [LWUtility makeButton:[NSString stringWithFormat:@"議論時間：%@分",infoDic[@"timer"]]
+                                                 size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"timerButton" position:CGPointMake(0, -self.size.height/2+175)];
+    [background addChild:timerButton];
+    
+    
+   
+    SKSpriteNode *fortuneTellerButton = [LWUtility makeButton:[LWUtility getFortuneButtonString:[infoDic[@"fortuneMode"]integerValue]]
+                                                         size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"fortuneButton" position:CGPointMake(0, -self.size.height/2+245)];
+    [background addChild:fortuneTellerButton];
+    
+    
+    
+    
+    NSString *lackString = @"役欠け：なし";
+    if([infoDic[@"isLacking"]boolValue]) {
+        lackString = @"役欠け：あり";
+    }
+    SKSpriteNode *lackingButton = [LWUtility makeButton:lackString
+                                                   size:CGSizeMake(self.size.width*0.8, self.size.height*0.1)
+                                                   name:@"lackingButton" position:CGPointMake(0, -self.size.height/2+315)];
+    [background addChild:lackingButton];
+    
+    
+    NSString *canGuardString = @"連続ガード：あり";
+    if(![infoDic[@"canContinuousGuard"]boolValue]) {
+        canGuardString = @"連続ガード：なし";
+    }
+    SKSpriteNode *guardButton = [LWUtility makeButton:canGuardString
+                                                 size:CGSizeMake(self.size.width*0.8, self.size.height*0.1)
+                                                 name:@"guardButton" position:CGPointMake(0, -self.size.height/2+385)];
+    [background addChild:guardButton];
+    
+    
+    
+    if([infoDic objectForKey:@"timer"] == nil) {
+        [self setDefaultInfo];
+    }
+}
+
+-(void) setBackScene :(SKScene *)backScene infoDic:(NSMutableDictionary *)_infoDic{
+    toBackScene = (LWSettingScene *)backScene;
+    infoDic = _infoDic;
+    
+    [self initBackground];
+}
+
+
+-(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = [touches anyObject];
+    CGPoint location = [touch locationInNode:self];
+    SKNode *node = [self nodeAtPoint:location];
+    
+    
+    if([node.name isEqualToString:@"back"]) {
+        [(LWSettingScene *) toBackScene setRuleInfo:infoDic] ;
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionRight duration:0.5];
+        [self.view presentScene:toBackScene transition:transition];
+    }
+    
+    if([node.name isEqualToString:@"default"]) {
+        [self setDefaultInfo];
+    }
+    
+    if([node.name isEqualToString:@"timerButton"]) {
+        NSInteger minute = [infoDic[@"timer"]integerValue];
+        minute++;
+        if(minute > 10) minute = 1;
+        
+        [infoDic setObject:@(minute) forKey:@"timer"];
+        
+        [self reloadButtonStrings];
+    }
+    
+    if([node.name isEqualToString:@"fortuneButton"]) {
+        NSInteger mode = [infoDic[@"fortuneMode"]integerValue];
+        mode++;
+        if(mode > 2) mode = 0;
+        [infoDic setObject:@(mode) forKeyedSubscript:@"fortuneMode"];
+        [self reloadButtonStrings];
+    }
+    
+    if([node.name isEqualToString:@"lackingButton"]) {
+        BOOL isLack = [infoDic[@"isLacking"]boolValue];
+        
+        if(isLack) {
+            isLack = NO;
+        } else {
+            isLack = YES;
+        }
+        
+        [infoDic setObject:@(isLack) forKeyedSubscript:@"isLacking"];
+        [self reloadButtonStrings];
+    }
+    
+    if([node.name isEqualToString:@"guardButton"]) {
+        BOOL canGuard = [infoDic[@"canContinuousGuard"]boolValue];
+        
+        if(canGuard) {
+            canGuard = NO;
+        } else {
+            canGuard = YES;
+        }
+        
+        [infoDic setObject:@(canGuard) forKeyedSubscript:@"canContinuousGuard"];
+        [self reloadButtonStrings];
+    }
+}
+
+-(void)setDefaultInfo {
+    [infoDic setObject:@5 forKey:@"timer"];
+    [infoDic setObject:@(FortuneTellerModeFree) forKeyedSubscript:@"fortuneMode"];
+    [infoDic setObject:@NO forKeyedSubscript:@"isLacking"];
+    [infoDic setObject:@YES forKeyedSubscript:@"canContinuousGuard"];
+    
+    [self reloadButtonStrings];
+}
+
+-(void)reloadButtonStrings {
+    [self.children[0] removeFromParent];
+    [self initBackground];
+    /*
+    SKSpriteNode *background = self.children[0];
+    
+    SKNode *timerButton = [background childNodeWithName:@"timerButton"];
+    NSString *timerString = [NSString stringWithFormat:@"議論時間：%@分",infoDic[@"timer"]];
+    ((SKLabelNode*)timerButton.children[0]).text = timerString;
+
+    
+    SKNode *fortuneButton = [background childNodeWithName:@"fortuneButton"];
+    NSString *fortuneString = [LWUtility getFortuneButtonString:[infoDic[@"fortuneMode"]integerValue]];
+    ((SKLabelNode*)fortuneButton.children[0]).text = fortuneString;
+    
+    NSLog(@"%@",timerString);
+    NSLog(@"%@",fortuneString);
+     */
+}
+
+@end

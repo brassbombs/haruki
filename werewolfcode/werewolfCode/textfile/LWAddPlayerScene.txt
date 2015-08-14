@@ -1,0 +1,225 @@
+//
+//  LWAddPlayerScene.m
+//  嘘つき人狼
+//
+//  Created by Yuki Murakami on 2014/09/21.
+//  Copyright (c) 2014年 yuki. All rights reserved.
+//
+
+#import "LWAppDelegate.h"
+#import "LWAddPlayerScene.h"
+#import "LWUtility.h"
+
+@implementation LWAddPlayerScene
+
+-(id)initWithSize:(CGSize)size {
+    self = [super initWithSize:size];
+    
+    return self;
+}
+
+-(void)initBackground {
+    
+    SKSpriteNode *background = [[SKSpriteNode alloc]initWithImageNamed:@"night.jpg"];
+    background.size = self.size;
+    background.position = CGPointMake(self.size.width/2,self.size.height/2);
+    [self addChild:background];
+    
+    if(editFlag) {
+        
+        SKSpriteNode *backButton = [[SKSpriteNode alloc]initWithImageNamed:@"button.png"];
+        backButton.name = @"edit";
+        backButton.size = CGSizeMake(self.size.width*0.8, self.size.height*0.1);
+        backButton.position = CGPointMake(0, -self.size.height/2+35);
+        SKLabelNode *backButtonLabel = [[SKLabelNode alloc]init];
+        backButtonLabel.text = @"編集";
+        backButtonLabel.fontSize = backButton.size.height*0.5;
+        backButtonLabel.fontColor = [UIColor blackColor];
+        backButtonLabel.position = CGPointMake(0, -backButton.size.height*0.15);
+        backButtonLabel.name = @"edit";
+        [backButton addChild:backButtonLabel];
+        [background addChild:backButton];
+        
+        
+        SKSpriteNode *deleteButton = [[SKSpriteNode alloc]initWithImageNamed:@"button.png"];
+        deleteButton.name = @"delete";
+        deleteButton.size = CGSizeMake(self.size.width*0.8, self.size.height*0.1);
+        deleteButton.position = CGPointMake(0, -self.size.height/2+115);
+        SKLabelNode *deleteButtonLabel = [[SKLabelNode alloc]init];
+        deleteButtonLabel.text = @"削除";
+        deleteButtonLabel.fontSize = deleteButton.size.height*0.5;
+        deleteButtonLabel.fontColor = [UIColor blackColor];
+        deleteButtonLabel.position = CGPointMake(0, -deleteButton.size.height*0.15);
+        deleteButtonLabel.name = @"delete";
+        [deleteButton addChild:deleteButtonLabel];
+        [background addChild:deleteButton];
+        
+        
+        faceImageImage = infoDic[@"image"];
+        
+        faceImage = [[SKSpriteNode alloc]initWithColor:[UIColor blackColor] size:CGSizeMake(200,150)];
+        faceImage.texture = [SKTexture textureWithImage:faceImageImage];
+        faceImage.position = CGPointMake(0, 140);
+        faceImage.name = @"faceImage";
+        faceImage.zRotation = -1.57;
+        [background addChild:faceImage];
+        
+        
+        CGSize nameViewSize = CGSizeMake(200,30);
+        nameView = [[UITextView alloc]initWithFrame:CGRectMake(self.size.width/2-nameViewSize.width/2,self.size.height/2+faceImage.position.y - faceImage.size.height-10,nameViewSize.width,nameViewSize.height)];
+        nameView.delegate = self;
+        nameView.text = infoDic[@"name"];
+        nameView.returnKeyType = UIReturnKeyDone;
+        
+    } else {
+    
+        SKSpriteNode *backButton = [[SKSpriteNode alloc]initWithImageNamed:@"button.png"];
+        backButton.name = @"back";
+        backButton.size = CGSizeMake(self.size.width*0.8, self.size.height*0.1);
+        backButton.position = CGPointMake(0, -self.size.height/2+35);
+        SKLabelNode *backButtonLabel = [[SKLabelNode alloc]init];
+        backButtonLabel.text = @"追加";
+        backButtonLabel.fontSize = backButton.size.height*0.5;
+        backButtonLabel.fontColor = [UIColor blackColor];
+        backButtonLabel.position = CGPointMake(0, -backButton.size.height*0.15);
+        backButtonLabel.name = @"back";
+        [backButton addChild:backButtonLabel];
+        [background addChild:backButton];
+        
+        
+        SKSpriteNode *deleteButton = [[SKSpriteNode alloc]initWithImageNamed:@"button.png"];
+        deleteButton.name = @"delete";
+        deleteButton.size = CGSizeMake(self.size.width*0.8, self.size.height*0.1);
+        deleteButton.position = CGPointMake(0, -self.size.height/2+115);
+        SKLabelNode *deleteButtonLabel = [[SKLabelNode alloc]init];
+        deleteButtonLabel.text = @"戻る";
+        deleteButtonLabel.fontSize = deleteButton.size.height*0.5;
+        deleteButtonLabel.fontColor = [UIColor blackColor];
+        deleteButtonLabel.position = CGPointMake(0, -deleteButton.size.height*0.15);
+        deleteButtonLabel.name = @"delete";
+        [deleteButton addChild:deleteButtonLabel];
+        [background addChild:deleteButton];
+        
+        
+        faceImageImage = [UIImage imageNamed:@"no_image.jpg"];
+        
+        faceImage = [[SKSpriteNode alloc]initWithColor:[UIColor blackColor] size:CGSizeMake(200,150)];
+        faceImage.texture = [SKTexture textureWithImage:faceImageImage];
+        faceImage.position = CGPointMake(0, 140);
+        faceImage.name = @"faceImage";
+        faceImage.zRotation = -1.57;
+        [background addChild:faceImage];
+        
+        
+        CGSize nameViewSize = CGSizeMake(200,30);
+        nameView = [[UITextView alloc]initWithFrame:CGRectMake(self.size.width/2-nameViewSize.width/2,self.size.height/2+faceImage.position.y - faceImage.size.height-10,nameViewSize.width,nameViewSize.height)];
+        nameView.delegate = self;
+        nameView.returnKeyType = UIReturnKeyDone;
+        
+    }
+}
+
+-(void) setBackScene :(SKScene *)backScene editFlag:(bool)_editFlag infoDic:(NSMutableDictionary *)_infoDic{
+    toBackScene = (LWPlayerSettingScene *)backScene;
+    editFlag = _editFlag;
+    infoDic = _infoDic;
+    
+    [self initBackground];
+}
+
+-(void)didMoveToView:(SKView *)view {
+    [self.view addSubview:nameView];
+}
+
+-(void)willMoveFromView:(SKView *)view {
+    [nameView removeFromSuperview];
+}
+
+
+-(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = [touches anyObject];
+    CGPoint location = [touch locationInNode:self];
+    SKNode *node = [self nodeAtPoint:location];
+    
+    if(editFlag) {
+        
+        if([node.name isEqualToString:@"edit"]) {
+            NSMutableDictionary *info = [@{@"name":nameView.text,@"image":faceImageImage} mutableCopy];
+            [toBackScene editTable:[infoDic[@"row"]intValue] info:info] ;
+            SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionRight duration:0.5];
+            [self.view presentScene:toBackScene transition:transition];
+        }
+        
+        if([node.name isEqualToString:@"delete"]) {
+            [toBackScene deleteTable:[infoDic[@"row"]intValue]];
+            SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionRight duration:0.5];
+            [self.view presentScene:toBackScene transition:transition];
+        }
+        
+    } else {
+    
+        if([node.name isEqualToString:@"back"]) {
+            NSMutableDictionary *info = [@{@"name":nameView.text,@"image":faceImageImage} mutableCopy];
+            [toBackScene addTable:info];
+            SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionRight duration:0.5];
+            [self.view presentScene:toBackScene transition:transition];
+        }
+        
+        if([node.name isEqualToString:@"delete"]) {
+            SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionRight duration:0.5];
+            [self.view presentScene:toBackScene transition:transition];
+        }
+        
+    }
+    
+    if([node.name isEqualToString:@"faceImage"]) {
+        if([UIImagePickerController
+            isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]){
+            ipc = [[UIImagePickerController alloc] init];  // 生成
+            ipc.delegate = self;  // デリゲートを自分自身に設定
+            ipc.sourceType = UIImagePickerControllerSourceTypeCamera;  // 画像の取得先をカメラに設定
+            [self.view.window.rootViewController presentViewController: ipc animated:YES completion:nil]; // モーダルビューとしてカメラ画面を呼び出す
+        }
+    }
+}
+
+
+#pragma mark -
+#pragma mark delegate
+
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info
+{
+    // picker から画像を取得する。
+    UIImage *fromCamera = [info objectForKey:UIImagePickerControllerOriginalImage];
+    
+    
+    UIImageView *iv = [[UIImageView alloc] initWithImage:fromCamera];
+    SKTexture *texture = [SKTexture textureWithImage:iv.image];
+    faceImage.texture = texture;
+    faceImageImage = iv.image;
+    // picker を閉じる
+    [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker
+{
+    // picker を閉じる
+    [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+-(BOOL)textView:(UITextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text {
+    
+    if ([text isEqualToString:@"\n"]) {
+        // ここにtextのデータ(記録)処理など
+    
+        // キーボードを閉じる
+        [textView resignFirstResponder];
+        return NO;
+    }
+    return YES;
+    // YES if the old text should be replaced by the new text;
+    // NO if the replacement operation should be aborted. (Apple's Reference より)
+}
+
+@end

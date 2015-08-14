@@ -1,0 +1,104 @@
+//
+//  LWRoleTableScene.m
+//  嘘つき人狼
+//
+//  Created by Yuki Murakami on 2015/06/05.
+//  Copyright (c) 2015年 yuki. All rights reserved.
+//
+
+#import "LWRoleTableScene.h"
+#import "LWUtility.h"
+
+@implementation LWRoleTableScene
+
+-(id)initWithSize:(CGSize)size {
+    self = [super initWithSize:size];
+    
+    return self;
+}
+
+-(void)initBackground {
+    
+    
+    
+    SKSpriteNode *background = [[SKSpriteNode alloc]initWithImageNamed:@"afternoon.jpg"];
+    background.size = self.size;
+    background.position = CGPointMake(self.size.width/2,self.size.height/2);
+    [self addChild:background];
+    
+    
+    SKSpriteNode *backButton = [LWUtility makeButton:@"戻る" size:CGSizeMake(self.size.width*0.8, self.size.height*0.1) name:@"back" position:CGPointMake(0, -self.size.height/2+35)];
+    [background addChild:backButton];
+    
+    
+    CGFloat margin = 5;
+    CGFloat upmargin = 80;
+    table = [[UITableView alloc]initWithFrame:CGRectMake(margin,upmargin,self.size.width-margin*2,self.size.height-upmargin*2.8)];
+    table.delegate = self;
+    table.dataSource = self;
+    table.rowHeight = 80;
+}
+
+
+-(void) setBackScene :(SKScene *)backScene {
+    toBackScene = (LWSettingScene *)backScene;
+    [self initBackground];
+}
+
+-(void)willMoveFromView:(SKView *)view {
+    [table removeFromSuperview];
+}
+
+-(void)didMoveToView:(SKView *)view {
+    
+    [self.view addSubview:table];
+    [table reloadData];
+}
+
+-(void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+    UITouch *touch = [touches anyObject];
+    CGPoint location = [touch locationInNode:self];
+    SKNode *node = [self nodeAtPoint:location];
+    
+    
+    if([node.name isEqualToString:@"back"]) {
+        SKTransition *transition = [SKTransition pushWithDirection:SKTransitionDirectionRight duration:0.5];
+        [self.view presentScene:toBackScene transition:transition];
+    }
+    
+    
+}
+
+#pragma mark -
+#pragma mark tableDelegate
+
+
+
+-(NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return [LWUtility getMaxRollCount];
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath
+{
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"cell"];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle  reuseIdentifier:@"cell"];
+    }
+    
+    NSString *name = [LWUtility getCardInfofromId:(int)indexPath.row][@"name"];
+    UIImage *image = [UIImage imageNamed:[NSString stringWithFormat:@"card%d.png",(int)indexPath.row]];
+    
+    cell.textLabel.text = name;
+    cell.imageView.image = image;
+    
+    return cell;
+}
+
+-(void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    
+    //[self performSelector:@selector(cellEdit:) withObject:@(indexPath.row)];
+}
+
+@end
+
+
